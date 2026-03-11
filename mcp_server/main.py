@@ -34,10 +34,20 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Allow the agent backend (and frontend in dev) to call this service
+# In production, set ALLOWED_ORIGINS to the Railway agent backend URL so it can call this service.
+import os as _os
+_extra_mcp_origins = [
+    o.strip() for o in _os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+_mcp_cors_origins = [
+    "http://localhost:8000",
+    "http://localhost:5173",
+    "http://localhost:3000",
+] + _extra_mcp_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://localhost:5173", "http://localhost:3000"],
+    allow_origins=_mcp_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -68,14 +68,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: allow the React frontend (Vite dev server at port 5173) to call this API
+# CORS origins — always include localhost for local dev.
+# In production, set ALLOWED_ORIGINS to a comma-separated list of frontend URLs,
+# e.g. "https://sec-insight-agent.vercel.app,https://yourdomain.com"
+_extra_origins = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+_cors_origins = [
+    "http://localhost:5173",   # Vite dev server
+    "http://localhost:3000",   # CRA fallback
+    "http://localhost:4173",   # Vite preview
+] + _extra_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # Create React App fallback
-        "http://localhost:4173",  # Vite preview
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

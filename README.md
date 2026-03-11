@@ -234,49 +234,74 @@ sec-insight-agent/
 
 ---
 
-## Deployment Overview
+## Deployment Guide (Railway + Vercel)
 
-This project is designed to be containerized and deployed to AWS:
+This is the recommended free-tier deployment for sharing with others.
+Takes about 20 minutes. No Docker or cloud accounts beyond Railway and Vercel needed.
 
-### MCP Server
-```
-Docker container → AWS ECS (Fargate) or AWS Lambda (container)
-- No secrets needed (EDGAR is public)
-- Can be deployed behind API Gateway for rate limiting
-- Stateless — scale horizontally
-```
+### Step 1 — Deploy the MCP Server to Railway
 
-### Agent Backend
-```
-Docker container → AWS ECS (Fargate)
-- Requires OPENAI_API_KEY (stored in AWS Secrets Manager)
-- Set MCP_SERVER_URL to the ECS service discovery URL of the MCP server
-- Use an Application Load Balancer in front for HTTPS
-```
+1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**
+2. Select `rayyankhann/sec-insight-agent`
+3. When prompted for settings:
+   - **Root Directory:** `mcp_server`
+   - **Start Command:** *(leave blank — Railway reads the `Procfile` automatically)*
+4. No environment variables needed (SEC EDGAR is a public API)
+5. Click **Deploy**. Railway gives you a URL like:
+   `https://mcp-server-production.up.railway.app`
+6. Verify: open `https://mcp-server-production.up.railway.app/health` — should return `{"status":"ok"}`
 
-### Frontend
-```
-Option A: Vercel
-  - Connect GitHub repo → Vercel auto-deploys on push
-  - Set VITE_API_URL env var to the agent backend's ALB URL
+### Step 2 — Deploy the Agent Backend to Railway
 
-Option B: AWS S3 + CloudFront
-  - npm run build → upload dist/ to S3
-  - CloudFront distribution serves the static files
-  - API calls proxied through CloudFront to the ALB
-```
+1. In the same Railway project → **New Service** → **GitHub Repo** → same repo
+2. Settings:
+   - **Root Directory:** `agent`
+   - **Start Command:** *(leave blank — reads `Procfile`)*
+3. Add these **environment variables** in Railway's Variables tab:
+   ```
+   OPENAI_API_KEY        = sk-proj-...your key...
+   MCP_SERVER_URL        = https://mcp-server-production.up.railway.app
+   ALLOWED_ORIGINS       = https://sec-insight-agent.vercel.app
+   ```
+   *(Set `ALLOWED_ORIGINS` to your Vercel URL — you'll get this in Step 3. You can update it after.)*
+4. Click **Deploy**. You'll get a URL like:
+   `https://sec-agent-backend-production.up.railway.app`
+5. Verify: open `.../health` — should return `{"status":"ok","agent":"ready"}`
 
-### Environment Variables in Production
-```
-AWS Secrets Manager stores:
-  - OPENAI_API_KEY
+### Step 3 — Deploy the Frontend to Vercel
 
-AWS Systems Manager Parameter Store stores:
-  - MCP_SERVER_URL (service discovery URL)
+1. Go to [vercel.com](https://vercel.com) → **Add New Project** → Import `rayyankhann/sec-insight-agent`
+2. Settings:
+   - **Root Directory:** `frontend`
+   - **Framework Preset:** Vite *(auto-detected)*
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `dist`
+3. Add this **environment variable**:
+   ```
+   VITE_API_URL = https://sec-agent-backend-production.up.railway.app
+   ```
+4. Click **Deploy**. Vercel gives you a URL like:
+   `https://sec-insight-agent.vercel.app`
 
-These are injected into ECS task definitions as environment variables.
-Never hardcode secrets in Docker images or task definitions.
-```
+### Step 4 — Update CORS on Railway
+
+Now that you have the Vercel URL, go back to your **agent backend** service on Railway:
+- Update `ALLOWED_ORIGINS` to your exact Vercel URL:
+  `https://sec-insight-agent.vercel.app`
+- Railway redeploys automatically
+
+### Done — share the Vercel URL with your friend!
+
+### Environment Variables Summary
+
+| Variable | Set on | Value |
+|----------|--------|-------|
+| `OPENAI_API_KEY` | Railway (agent) | Your OpenAI key |
+| `MCP_SERVER_URL` | Railway (agent) | Railway MCP server URL |
+| `ALLOWED_ORIGINS` | Railway (agent + mcp) | Your Vercel app URL |
+| `VITE_API_URL` | Vercel (frontend) | Railway agent backend URL |
+
+> **AWS alternative:** For enterprise deployment, replace Railway with AWS ECS (Fargate) and Vercel with S3 + CloudFront. Store secrets in AWS Secrets Manager and inject them as ECS task environment variables.
 
 ---
 

@@ -16,16 +16,18 @@
  * │        Search Bar           │  ← fixed bottom
  * └─────────────────────────────┘
  *
- * API calls go to /api/chat which Vite proxies to the agent backend at :8000.
+ * API calls go to /api/chat which Vite proxies to the agent backend at :8000 in dev.
+ * In production (Railway/Vercel), VITE_API_URL is set to the deployed agent backend URL.
  */
 
 import React, { useState, useCallback } from 'react'
 import ChatWindow from './components/ChatWindow'
 import SearchBar from './components/SearchBar'
 
-// The agent backend URL — in production, replace with the real API URL.
-// In development, Vite proxies /api → http://localhost:8000 (see vite.config.js)
-const API_BASE = '/api'
+// In local dev: Vite proxies /api → http://localhost:8000 (see vite.config.js)
+// In production: set VITE_API_URL to the deployed Railway agent backend URL,
+//   e.g. https://sec-agent-backend-production.up.railway.app
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 function App() {
   const [messages, setMessages] = useState([])
