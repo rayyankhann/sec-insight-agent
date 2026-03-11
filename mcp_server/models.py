@@ -37,6 +37,49 @@ class FilingContentResponse(BaseModel):
     char_count: int       # How many characters were returned (after truncation)
 
 
+class StockDataPoint(BaseModel):
+    """A single OHLCV data point for a stock price chart."""
+    date: str     # ISO date string, e.g. "2024-01-15"
+    close: float  # Closing price
+
+
+class StockChartResponse(BaseModel):
+    """Historical stock price data — returned by GET /stock/{ticker}/chart."""
+    ticker: str
+    currency: str
+    data: list[StockDataPoint]
+
+
+class FinancialMetric(BaseModel):
+    """A single financial metric with its most recent value and prior year value."""
+    label: str            # Human-readable name, e.g. "Revenue"
+    value: Optional[float] = None   # Most recent annual value (in USD)
+    prior_value: Optional[float] = None  # Prior year value for YoY comparison
+    period: Optional[str] = None    # Fiscal period end date, e.g. "2024-09-28"
+    unit: str = "USD"
+
+
+class FinancialsResponse(BaseModel):
+    """Key financial metrics — returned by GET /company/{cik}/financials."""
+    cik: str
+    company_name: Optional[str] = None
+    metrics: list[FinancialMetric]
+
+
+class FilingTimelineItem(BaseModel):
+    """A single entry in a company's filing history for the timeline view."""
+    form_type: str
+    filed_date: str
+    accession_number: str
+    document_url: str
+
+
+class FilingTimelineResponse(BaseModel):
+    """Multi-type filing history — returned by GET /company/{cik}/timeline."""
+    cik: str
+    filings: list[FilingTimelineItem]
+
+
 class HealthResponse(BaseModel):
     """Simple health check response — returned by GET /health."""
     status: str

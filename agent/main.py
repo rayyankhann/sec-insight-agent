@@ -15,8 +15,9 @@ Run with:
 """
 
 import os
+import json
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,6 +43,11 @@ class ChatResponse(BaseModel):
     """The response body for POST /chat."""
     response: str
     sources: list[dict[str, str]] = []
+    # Company metadata extracted from tool calls — used by the frontend to
+    # auto-load the stock chart, financials, and filing timeline dashboard
+    company_cik: Optional[str] = None
+    company_ticker: Optional[str] = None
+    company_name: Optional[str] = None
 
 
 # ─── App Lifecycle ─────────────────────────────────────────────────────────────
@@ -154,10 +160,33 @@ async def chat(request: ChatRequest) -> ChatResponse:
             else str(final_message)
         )
 
-        # Extract source citations from the messages that involved tool calls
+        # Extract source citations and company metadata from tool calls
         sources = extract_tool_calls_from_messages(output_messages)
 
-        return ChatResponse(response=response_text, sources=sources)
+        # Pull CIK + ticker from the search_company tool result so the frontend
+        # can auto-load the stock chart, financials, and filing timeline
+        company_cik: Optional[str] = None
+        company_ticker: Optional[str] = None
+        company_name: Optional[str] = None
+
+        for msg in output_messages:
+            # ToolMessage contains the JSON result of each tool call
+            if hasattr(msg, "name") and msg.name == "search_company":
+                try:
+                    result = json.loads(msg.content)
+                    company_cik = result.get("cik")
+                    company_ticker = result.get("ticker")
+                    company_name = result.get("company_name")
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
+        return ChatResponse(
+            response=response_text,
+            sources=sources,
+            company_cik=company_cik,
+            company_ticker=company_ticker,
+            company_name=company_name,
+        )
 
     except ValueError as e:
         # Catches configuration errors like missing API key

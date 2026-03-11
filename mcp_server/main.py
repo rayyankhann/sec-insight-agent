@@ -19,11 +19,18 @@ from edgar_client import (
     search_company_by_name,
     get_company_filings,
     fetch_filing_text,
+    fetch_stock_chart,
+    fetch_company_financials,
+    fetch_filing_timeline,
 )
 from models import (
     CompanySearchResult,
     FilingsResponse,
     FilingContentResponse,
+    StockChartResponse,
+    FinancialsResponse,
+    FilingTimelineResponse,
+    FilingTimelineItem,
     HealthResponse,
     ErrorResponse,
 )
@@ -182,3 +189,105 @@ async def get_filing_document(
         content=content,
         char_count=len(content),
     )
+
+
+@app.get(
+    "/stock/{ticker}/chart",
+    response_model=StockChartResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_stock_chart(
+    ticker: str,
+    range: str = Query(default="1y", description="Time range: 1y, 6mo, 2y, 5y"),
+) -> StockChartResponse:
+    """
+    Fetch historical weekly closing prices for a stock via Yahoo Finance.
+
+    This endpoint proxies Yahoo Finance so the frontend never has to call
+    external APIs directly (avoids CORS issues and keeps all data fetching
+    server-side). Yahoo Finance is free and requires no API key.
+
+    Example: GET /stock/AAPL/chart?range=1y
+    """
+    try:
+        data = await fetch_stock_chart(ticker=ticker, range_=range)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Yahoo Finance returned an error for ticker '{ticker}': HTTP {e.response.status_code}",
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Network error fetching price data: {str(e)}",
+        )
+
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No price data found for ticker '{ticker}'. Make sure the ticker symbol is correct.",
+        )
+
+    # Detect the currency from the first data point (USD for US stocks)
+    return StockChartResponse(ticker=ticker.upper(), currency="USD", data=data)
+
+
+@app.get(
+    "/company/{cik}/financials",
+    response_model=FinancialsResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    tags=["Financials"],
+)
+async def get_company_financials(cik: str) -> FinancialsResponse:
+    """
+    Fetch structured annual financial metrics from EDGAR's XBRL Company Facts API.
+
+    Returns key metrics (Revenue, Net Income, EPS, Total Assets, etc.) for the
+    two most recent fiscal years, enabling year-over-year comparison display.
+    Data comes directly from EDGAR's machine-readable XBRL filings — no LLM needed.
+
+    Example: GET /company/0000320193/financials
+    """
+    try:
+        metrics = await fetch_company_financials(cik=cik)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"EDGAR returned an error fetching financials for CIK {cik}: HTTP {e.response.status_code}",
+        )
+
+    if not metrics:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No XBRL financial data found for CIK {cik}.",
+        )
+
+    return FinancialsResponse(cik=cik, metrics=metrics)
+
+
+@app.get(
+    "/company/{cik}/timeline",
+    response_model=FilingTimelineResponse,
+    responses={502: {"model": ErrorResponse}},
+    tags=["Filings"],
+)
+async def get_filing_timeline(cik: str) -> FilingTimelineResponse:
+    """
+    Fetch a combined filing timeline (10-K, 10-Q, 8-K) for a company.
+
+    Used to render the visual filing history in the frontend dashboard.
+    Returns up to 8 of each filing type, merged and sorted by date.
+
+    Example: GET /company/0001318605/timeline
+    """
+    try:
+        filings = await fetch_filing_timeline(cik=cik)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"EDGAR error fetching timeline for CIK {cik}: HTTP {e.response.status_code}",
+        )
+
+    items = [FilingTimelineItem(**f) for f in filings]
+    return FilingTimelineResponse(cik=cik, filings=items)

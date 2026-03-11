@@ -1,22 +1,27 @@
 """
-edgar_client.py — All SEC EDGAR API interactions live here.
+edgar_client.py — All SEC EDGAR and market data API interactions live here.
 
-This module is the single source of truth for talking to SEC EDGAR.
-No other file in the project should make HTTP requests to EDGAR directly.
+This module is the single source of truth for external data fetching.
+No other file in the project should make HTTP requests to EDGAR or Yahoo Finance.
 
-EDGAR has two main API bases:
+EDGAR API surfaces used:
   - https://efts.sec.gov/LATEST/search-index — full-text search for filings/companies
   - https://data.sec.gov/submissions/           — structured filing history by CIK
+  - https://data.sec.gov/api/xbrl/companyfacts/ — structured XBRL financial data
   - https://www.sec.gov/Archives/edgar/         — raw filing documents
+
+Yahoo Finance (free, no key required):
+  - https://query1.finance.yahoo.com/v8/finance/chart/{ticker} — OHLCV price history
 
 EDGAR API reference: https://www.sec.gov/developer
 """
 
 import re
+from datetime import datetime
 import httpx
 from typing import Optional
 
-from models import CompanySearchResult, Filing
+from models import CompanySearchResult, Filing, StockDataPoint, FinancialMetric
 
 # EDGAR requires a descriptive User-Agent header on every request.
 # Without it, requests may be rejected or rate-limited.
@@ -426,3 +431,200 @@ def _strip_html(html_content: str) -> str:
     text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
 
     return text.strip()
+
+
+# ─── Stock Price History (Yahoo Finance) ──────────────────────────────────────
+
+async def fetch_stock_chart(ticker: str, range_: str = "1y") -> list[StockDataPoint]:
+    """
+    Fetch historical daily closing prices for a stock ticker via Yahoo Finance.
+
+    Yahoo Finance's chart API is free and requires no API key. We use the v8
+    chart endpoint which returns OHLCV data as arrays of timestamps and values.
+
+    Args:
+        ticker: Stock ticker symbol, e.g. "AAPL", "TSLA"
+        range_: Time range — "1y" (1 year), "6mo", "2y", "5y"
+
+    Returns:
+        List of StockDataPoint with date and closing price.
+    """
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}"
+    params = {
+        "range": range_,
+        "interval": "1wk",   # Weekly bars keep the payload small
+        "includePrePost": "false",
+    }
+    # Yahoo Finance requires a browser-like User-Agent
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+    result_data = data.get("chart", {}).get("result", [])
+    if not result_data:
+        return []
+
+    result = result_data[0]
+    timestamps = result.get("timestamp", [])
+    closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+
+    points: list[StockDataPoint] = []
+    for ts, close in zip(timestamps, closes):
+        if close is None:
+            continue
+        date_str = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        points.append(StockDataPoint(date=date_str, close=round(close, 2)))
+
+    return points
+
+
+# ─── EDGAR XBRL Financial Metrics ─────────────────────────────────────────────
+
+# Map of EDGAR XBRL concept names → human-readable labels.
+# These are the most universally reported concepts across all public companies.
+_FINANCIAL_CONCEPTS: list[tuple[str, str]] = [
+    ("Revenues", "Revenue"),
+    ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenue"),
+    ("SalesRevenueNet", "Revenue"),
+    ("NetIncomeLoss", "Net Income"),
+    ("GrossProfit", "Gross Profit"),
+    ("OperatingIncomeLoss", "Operating Income"),
+    ("EarningsPerShareBasic", "EPS (Basic)"),
+    ("Assets", "Total Assets"),
+    ("StockholdersEquity", "Stockholders Equity"),
+    ("CashAndCashEquivalentsAtCarryingValue", "Cash & Equivalents"),
+    ("LongTermDebt", "Long-Term Debt"),
+]
+
+
+async def fetch_company_financials(cik: str) -> list[FinancialMetric]:
+    """
+    Fetch key financial metrics from EDGAR's structured XBRL Company Facts API.
+
+    EDGAR's company facts endpoint provides machine-readable financial data for
+    every concept a company has ever reported via XBRL inline tagging. This is
+    the same data that powers EDGAR's interactive viewer — completely free.
+
+    We extract annual (10-K) values for the most recent two fiscal years to
+    enable year-over-year comparisons.
+
+    Args:
+        cik: Zero-padded 10-digit CIK string, e.g. "0000320193"
+
+    Returns:
+        List of FinancialMetric with label, most-recent value, prior-year value, and period.
+    """
+    cik_padded = cik.strip().zfill(10)
+    url = f"{EDGAR_DATA_BASE}/api/xbrl/companyfacts/CIK{cik_padded}.json"
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.get(url, headers=EDGAR_HEADERS)
+        response.raise_for_status()
+        data = response.json()
+
+    us_gaap = data.get("facts", {}).get("us-gaap", {})
+    metrics: list[FinancialMetric] = []
+    seen_labels: set[str] = set()
+
+    for concept, label in _FINANCIAL_CONCEPTS:
+        if label in seen_labels:
+            continue
+
+        concept_data = us_gaap.get(concept, {})
+        if not concept_data:
+            continue
+
+        # Prefer USD units; fall back to shares for per-share metrics
+        units = concept_data.get("units", {})
+        unit_key = "USD" if "USD" in units else ("USD/shares" if "USD/shares" in units else None)
+        if not unit_key:
+            continue
+
+        # Filter to annual (10-K) filings only — quarterly values are noisier
+        annual_entries = [
+            e for e in units[unit_key]
+            if e.get("form") == "10-K" and e.get("end") and e.get("val") is not None
+        ]
+        if not annual_entries:
+            continue
+
+        # Sort by end date descending — most recent filing first
+        annual_entries.sort(key=lambda e: e["end"], reverse=True)
+
+        latest = annual_entries[0]
+        prior = annual_entries[1] if len(annual_entries) > 1 else None
+
+        metrics.append(FinancialMetric(
+            label=label,
+            value=latest["val"],
+            prior_value=prior["val"] if prior else None,
+            period=latest["end"],
+            unit="USD/share" if unit_key == "USD/shares" else "USD",
+        ))
+        seen_labels.add(label)
+
+    return metrics
+
+
+async def fetch_filing_timeline(cik: str, limit_per_type: int = 8) -> list[dict]:
+    """
+    Fetch recent filings of all major types (10-K, 10-Q, 8-K) for the timeline view.
+
+    Returns a merged, date-sorted list of filings across form types so the
+    frontend can render a chronological activity timeline.
+
+    Args:
+        cik: Company CIK string
+        limit_per_type: How many filings to fetch per form type
+
+    Returns:
+        List of filing dicts sorted by filed_date descending.
+    """
+    cik_padded = cik.strip().zfill(10)
+    cik_int = int(cik_padded)
+
+    url = f"{EDGAR_DATA_BASE}/submissions/CIK{cik_padded}.json"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(url, headers=EDGAR_HEADERS)
+        response.raise_for_status()
+        data = response.json()
+
+    recent = data.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    dates = recent.get("filingDate", [])
+    accessions = recent.get("accessionNumber", [])
+    primary_docs = recent.get("primaryDocument", [""] * len(forms))
+
+    target_types = {"10-K", "10-Q", "8-K"}
+    counts: dict[str, int] = {"10-K": 0, "10-Q": 0, "8-K": 0}
+    timeline: list[dict] = []
+
+    for form, date, accession, primary_doc in zip(forms, dates, accessions, primary_docs):
+        if form not in target_types:
+            continue
+        if counts[form] >= limit_per_type:
+            continue
+
+        accession_no_dashes = accession.replace("-", "")
+        if primary_doc:
+            doc_url = f"{EDGAR_ARCHIVES_BASE}/Archives/edgar/data/{cik_int}/{accession_no_dashes}/{primary_doc}"
+        else:
+            doc_url = f"{EDGAR_ARCHIVES_BASE}/Archives/edgar/data/{cik_int}/{accession_no_dashes}/{accession}-index.htm"
+
+        timeline.append({
+            "form_type": form,
+            "filed_date": date,
+            "accession_number": accession,
+            "document_url": doc_url,
+        })
+        counts[form] += 1
+
+    # Sort by date descending for the timeline view
+    timeline.sort(key=lambda x: x["filed_date"], reverse=True)
+    return timeline
