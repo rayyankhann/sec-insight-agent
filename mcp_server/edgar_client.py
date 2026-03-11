@@ -500,8 +500,15 @@ async def fetch_stock_quote(ticker: str) -> StockQuoteResponse:
         StockQuoteResponse with price, stats, and 1D intraday chart points.
     """
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Accept": "application/json",
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://finance.yahoo.com/",
+        "Origin": "https://finance.yahoo.com",
     }
 
     chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}"
@@ -513,14 +520,23 @@ async def fetch_stock_quote(ticker: str) -> StockQuoteResponse:
         "fields": "shortName,longName,trailingPE,epsTrailingTwelveMonths,trailingAnnualDividendYield,marketCap,fullExchangeName",
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
         chart_task = client.get(chart_url, params=chart_params, headers=headers)
         quote_task = client.get(quote_url, params=quote_params, headers=headers)
         chart_resp, quote_resp = await asyncio.gather(chart_task, quote_task)
 
+    # Raise on HTTP errors so FastAPI returns a clear 502 instead of a silent failure
+    chart_resp.raise_for_status()
+
     # ── Parse chart response ──────────────────────────────────────────────────
     chart_json = chart_resp.json()
-    results = chart_json.get("chart", {}).get("result", [])
+
+    # Yahoo Finance sometimes returns a 200 with an error payload
+    yf_error = chart_json.get("chart", {}).get("error")
+    if yf_error:
+        raise ValueError(f"Yahoo Finance error for {ticker}: {yf_error.get('description', yf_error)}")
+
+    results = chart_json.get("chart", {}).get("result") or []
     if not results:
         raise ValueError(f"No chart data returned for {ticker}")
 
