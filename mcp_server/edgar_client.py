@@ -487,119 +487,84 @@ async def fetch_stock_chart(ticker: str, range_: str = "1y") -> list[StockDataPo
 
 async def fetch_stock_quote(ticker: str) -> StockQuoteResponse:
     """
-    Fetch a full stock quote: intraday chart + all key stats from Yahoo Finance.
+    Fetch a full stock quote: intraday chart + key stats via the yfinance library.
 
-    Makes two parallel requests:
-    1. Chart API (range=1d, interval=5m) — intraday price series + market metadata
-    2. Quote API (v7) — additional fundamentals: P/E, EPS, market cap, dividend yield
+    yfinance handles Yahoo Finance's cookie/crumb authentication automatically,
+    which avoids the 429/401 errors that hit the raw REST endpoints directly.
+
+    Two blocking calls are offloaded to a thread so the FastAPI event loop stays
+    non-blocking:
+      1. Ticker.info  — fundamentals: price, P/E, EPS, market cap, dividend yield, etc.
+      2. Ticker.history(period="1d", interval="5m") — intraday OHLCV DataFrame
 
     Args:
         ticker: Stock ticker symbol, e.g. "AAPL", "NVDA"
 
     Returns:
-        StockQuoteResponse with price, stats, and 1D intraday chart points.
+        StockQuoteResponse with live price, key stats, and 1D intraday chart points.
     """
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://finance.yahoo.com/",
-        "Origin": "https://finance.yahoo.com",
-    }
+    import yfinance as yf  # imported here to keep module-level imports minimal
 
-    chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}"
-    chart_params = {"range": "1d", "interval": "5m", "includePrePost": "true"}
+    loop = asyncio.get_event_loop()
+    t = yf.Ticker(ticker.upper())
 
-    quote_url = "https://query1.finance.yahoo.com/v7/finance/quote"
-    quote_params = {
-        "symbols": ticker.upper(),
-        "fields": "shortName,longName,trailingPE,epsTrailingTwelveMonths,trailingAnnualDividendYield,marketCap,fullExchangeName",
-    }
-
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-        chart_task = client.get(chart_url, params=chart_params, headers=headers)
-        quote_task = client.get(quote_url, params=quote_params, headers=headers)
-        chart_resp, quote_resp = await asyncio.gather(chart_task, quote_task)
-
-    # Raise on HTTP errors so FastAPI returns a clear 502 instead of a silent failure
-    chart_resp.raise_for_status()
-
-    # ── Parse chart response ──────────────────────────────────────────────────
-    chart_json = chart_resp.json()
-
-    # Yahoo Finance sometimes returns a 200 with an error payload
-    yf_error = chart_json.get("chart", {}).get("error")
-    if yf_error:
-        raise ValueError(f"Yahoo Finance error for {ticker}: {yf_error.get('description', yf_error)}")
-
-    results = chart_json.get("chart", {}).get("result") or []
-    if not results:
-        raise ValueError(f"No chart data returned for {ticker}")
-
-    result = results[0]
-    meta = result.get("meta", {})
-    timestamps = result.get("timestamp", [])
-    quote_data = result.get("indicators", {}).get("quote", [{}])[0]
-    closes = quote_data.get("close", [])
-    volumes = quote_data.get("volume", [])
-
-    chart_points: list[StockDataPoint] = []
-    for ts, close, vol in zip(timestamps, closes, volumes or [None] * len(closes)):
-        if close is None:
-            continue
-        dt_str = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:%M")
-        chart_points.append(StockDataPoint(
-            date=dt_str,
-            close=round(close, 4),
-            volume=float(vol) if vol else None,
-        ))
-
-    # ── Parse quote response ──────────────────────────────────────────────────
-    quote_json = quote_resp.json()
-    q = {}
-    quote_results = quote_json.get("quoteResponse", {}).get("result", [])
-    if quote_results:
-        q = quote_results[0]
-
-    # Post-market data (available after 4 PM ET)
-    post_price = meta.get("postMarketPrice") or q.get("postMarketPrice")
-    post_change = meta.get("postMarketChange") or q.get("postMarketChange")
-    post_change_pct = meta.get("postMarketChangePercent") or q.get("postMarketChangePercent")
-
-    # 52-week range from meta
-    week52_high = meta.get("fiftyTwoWeekHigh") or q.get("fiftyTwoWeekHigh")
-    week52_low = meta.get("fiftyTwoWeekLow") or q.get("fiftyTwoWeekLow")
-
-    company_name = (
-        q.get("longName") or q.get("shortName") or meta.get("instrumentType", "")
+    # Run both blocking yfinance calls in a thread pool so we don't block the event loop
+    info, hist = await asyncio.gather(
+        loop.run_in_executor(None, lambda: t.info),
+        loop.run_in_executor(None, lambda: t.history(period="1d", interval="5m")),
     )
+
+    if not info:
+        raise ValueError(f"No data returned for ticker '{ticker}'")
+
+    # ── Build intraday chart points ───────────────────────────────────────────
+    chart_points: list[StockDataPoint] = []
+    if not hist.empty:
+        for ts, row in hist.iterrows():
+            close = row.get("Close")
+            vol = row.get("Volume")
+            if close is None or (hasattr(close, "isna") and close.isna()):
+                continue
+            # Timestamp index is timezone-aware; convert to a naive local string
+            dt_str = ts.strftime("%Y-%m-%dT%H:%M")
+            chart_points.append(StockDataPoint(
+                date=dt_str,
+                close=round(float(close), 4),
+                volume=float(vol) if vol else None,
+            ))
+
+    # ── Extract stats from info dict ──────────────────────────────────────────
+    price = info.get("currentPrice") or info.get("regularMarketPrice")
+    prev_close = info.get("previousClose") or info.get("regularMarketPreviousClose")
+    change = (price - prev_close) if (price and prev_close) else None
+    change_pct = (change / prev_close * 100) if (change and prev_close) else None
+
+    # Normalise dividend yield: yfinance returns 0.004 for 0.4%
+    raw_yield = info.get("dividendYield")
+    div_yield = raw_yield if raw_yield else None  # keep as decimal (0.004), frontend formats it
 
     return StockQuoteResponse(
         ticker=ticker.upper(),
-        company_name=company_name or None,
-        exchange=q.get("fullExchangeName") or meta.get("fullExchangeName"),
-        currency=meta.get("currency", "USD"),
-        price=meta.get("regularMarketPrice"),
-        prev_close=meta.get("previousClose") or meta.get("chartPreviousClose"),
-        change=meta.get("regularMarketChange"),
-        change_pct=meta.get("regularMarketChangePercent"),
-        post_market_price=post_price,
-        post_market_change=post_change,
-        post_market_change_pct=post_change_pct,
-        open=meta.get("regularMarketOpen"),
-        day_high=meta.get("regularMarketDayHigh"),
-        day_low=meta.get("regularMarketDayLow"),
-        volume=meta.get("regularMarketVolume"),
-        market_cap=q.get("marketCap"),
-        pe_ratio=q.get("trailingPE"),
-        eps=q.get("epsTrailingTwelveMonths"),
-        dividend_yield=q.get("trailingAnnualDividendYield"),
-        week_52_high=week52_high,
-        week_52_low=week52_low,
+        company_name=info.get("longName") or info.get("shortName"),
+        exchange=info.get("exchange") or info.get("fullExchangeName"),
+        currency=info.get("currency", "USD"),
+        price=price,
+        prev_close=prev_close,
+        change=round(change, 4) if change else None,
+        change_pct=round(change_pct, 4) if change_pct else None,
+        post_market_price=info.get("postMarketPrice"),
+        post_market_change=info.get("postMarketChange"),
+        post_market_change_pct=info.get("postMarketChangePercent"),
+        open=info.get("open") or info.get("regularMarketOpen"),
+        day_high=info.get("dayHigh") or info.get("regularMarketDayHigh"),
+        day_low=info.get("dayLow") or info.get("regularMarketDayLow"),
+        volume=info.get("regularMarketVolume") or info.get("volume"),
+        market_cap=info.get("marketCap"),
+        pe_ratio=info.get("trailingPE"),
+        eps=info.get("trailingEps"),
+        dividend_yield=div_yield,
+        week_52_high=info.get("fiftyTwoWeekHigh"),
+        week_52_low=info.get("fiftyTwoWeekLow"),
         chart_data=chart_points,
     )
 
