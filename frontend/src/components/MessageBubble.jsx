@@ -97,21 +97,65 @@ function MessageBubble({ role, content, sources = [] }) {
           </div>
         </div>
 
-        {/* Source citations — shown below the bubble if the agent used tools */}
+        {/* Source citation badges — shown below the bubble for each tool the agent called.
+            The "SEC Filing" badge is a real link to the document on SEC.gov when a URL is available. */}
         {sources && sources.length > 0 && (
           <div className="flex flex-wrap gap-2 pl-1">
-            {sources.map((source, idx) => (
-              <span
-                key={idx}
-                className="inline-flex items-center gap-1 text-xs text-blue-400 bg-blue-950 border border-blue-900 rounded-full px-2.5 py-1"
-                title={source.description}
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            {sources.map((source, idx) => {
+              const label =
+                source.tool === 'get_filing_content'
+                  ? 'SEC Filing'
+                  : source.tool === 'get_filings'
+                  ? 'Filing List'
+                  : 'Company Search'
+
+              const isLink = source.tool === 'get_filing_content' && source.url
+
+              const badgeClasses =
+                'inline-flex items-center gap-1 text-xs text-blue-400 bg-blue-950 border border-blue-900 rounded-full px-2.5 py-1 transition-colors ' +
+                (isLink ? 'hover:bg-blue-900 hover:border-blue-700 hover:text-blue-300 cursor-pointer' : 'cursor-default')
+
+              const icon = (
+                <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                {source.tool === 'get_filing_content' ? 'SEC Filing' : source.tool === 'get_filings' ? 'Filing List' : 'Company Search'}
-              </span>
-            ))}
+              )
+
+              // External link icon — shown on the SEC Filing badge to signal it opens a new tab
+              const externalIcon = (
+                <svg className="w-2.5 h-2.5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              )
+
+              if (isLink) {
+                return (
+                  <a
+                    key={idx}
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={badgeClasses}
+                    title={`Open on SEC.gov: ${source.url}`}
+                  >
+                    {icon}
+                    {label}
+                    {externalIcon}
+                  </a>
+                )
+              }
+
+              return (
+                <span
+                  key={idx}
+                  className={badgeClasses}
+                  title={source.description}
+                >
+                  {icon}
+                  {label}
+                </span>
+              )
+            })}
           </div>
         )}
       </div>

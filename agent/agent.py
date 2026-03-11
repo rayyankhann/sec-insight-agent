@@ -131,6 +131,8 @@ def extract_tool_calls_from_messages(messages: list[BaseMessage]) -> list[dict[s
                     sources.append({
                         "tool": "get_filing_content",
                         "description": f"Read SEC filing document: {url[:80]}{'...' if len(url) > 80 else ''}",
+                        # Pass the full URL so the frontend can link directly to the filing on SEC.gov
+                        "url": url,
                     })
 
     return sources
