@@ -1,0 +1,191 @@
+/*
+ * index.css — Global styles for SEC Insight Agent.
+ *
+ * Tailwind's base/components/utilities layers are imported here.
+ * Custom styles beyond what Tailwind provides (scrollbar, markdown prose, etc.) live here.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base Resets ─────────────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #0a0f1e;
+  color: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Custom Scrollbar ────────────────────────────────────────────────────── */
+
+/* Webkit scrollbar — used in Chrome, Safari, Edge */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #111827;
+}
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+/* ─── Message Fade-In Animation ──────────────────────────────────────────── */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+/* ─── Markdown Prose Styles (for AI messages) ────────────────────────────── */
+
+/*
+ * react-markdown renders markdown as HTML. These styles ensure the rendered
+ * output looks clean and professional inside dark message bubbles.
+ */
+
+.prose-dark p {
+  margin-bottom: 0.75rem;
+  line-height: 1.7;
+  color: #e2e8f0;
+}
+
+.prose-dark p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-dark h1,
+.prose-dark h2,
+.prose-dark h3 {
+  font-weight: 600;
+  color: #f1f5f9;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-dark h2 {
+  font-size: 1.1rem;
+  border-bottom: 1px solid #1f2937;
+  padding-bottom: 0.25rem;
+}
+
+.prose-dark h3 {
+  font-size: 1rem;
+}
+
+.prose-dark ul, .prose-dark ol {
+  padding-left: 1.25rem;
+  margin-bottom: 0.75rem;
+  color: #e2e8f0;
+}
+
+.prose-dark li {
+  margin-bottom: 0.35rem;
+  line-height: 1.6;
+}
+
+.prose-dark ul li {
+  list-style-type: disc;
+}
+
+.prose-dark ol li {
+  list-style-type: decimal;
+}
+
+.prose-dark strong {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.prose-dark em {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.prose-dark code {
+  background: #1e293b;
+  color: #7dd3fc;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.prose-dark pre {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.prose-dark pre code {
+  background: none;
+  padding: 0;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+
+.prose-dark blockquote {
+  border-left: 3px solid #2563eb;
+  padding-left: 1rem;
+  color: #94a3b8;
+  font-style: italic;
+  margin: 0.75rem 0;
+}
+
+.prose-dark a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+.prose-dark hr {
+  border-color: #1f2937;
+  margin: 1rem 0;
+}
+
+/* ─── Loading Dots Animation ─────────────────────────────────────────────── */
+
+@keyframes dot-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
+.loading-dot {
+  animation: dot-bounce 1.4s ease-in-out infinite both;
+}
+.loading-dot:nth-child(1) { animation-delay: 0s; }
+.loading-dot:nth-child(2) { animation-delay: 0.16s; }
+.loading-dot:nth-child(3) { animation-delay: 0.32s; }

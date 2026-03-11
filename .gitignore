@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .gitignore — Files and directories to exclude from version control
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Environment Variables (NEVER commit these) ────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# pytest cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+
+# ── Node.js / Frontend ────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/build/
+
+# Vite cache
+frontend/.vite/
+
+# npm / yarn lockfile (keep package-lock.json, ignore yarn.lock if using npm)
+# yarn.lock  # uncomment if you use yarn
+
+# ── IDE / Editor ─────────────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+.cache/
+tmp/
