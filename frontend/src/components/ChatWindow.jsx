@@ -65,6 +65,8 @@ function ChatWindow({ messages, isLoading }) {
             role={message.role}
             content={message.content}
             sources={message.sources}
+            company_ticker={message.company_ticker}
+            company_name={message.company_name}
           />
         ))}
 

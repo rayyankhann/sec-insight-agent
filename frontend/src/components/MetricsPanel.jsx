@@ -1,18 +1,14 @@
 /**
- * MetricsPanel.jsx — Key financial metrics cards from EDGAR XBRL data.
+ * MetricsPanel.jsx — Key financial metrics from EDGAR XBRL data.
  *
- * Fetches structured annual financial data from the MCP server
- * (/company/{cik}/financials) which reads EDGAR's free XBRL Company Facts API.
- * No LLM call needed — this is pure structured data.
- *
- * Shows the 6 most important metrics with year-over-year comparison.
+ * 2-column layout with clear hierarchy: label → value → YoY change.
+ * Data from EDGAR's free XBRL Company Facts API — no LLM call needed.
  */
 
 import React, { useEffect, useState } from 'react'
 
 const API_BASE = import.meta.env.VITE_MCP_URL || 'http://localhost:8001'
 
-// Priority order for which metrics to show first
 const METRIC_PRIORITY = [
   'Revenue', 'Net Income', 'Gross Profit',
   'Operating Income', 'EPS (Basic)', 'Total Assets',
@@ -21,17 +17,13 @@ const METRIC_PRIORITY = [
 
 function formatValue(value, unit) {
   if (value === null || value === undefined) return '—'
-
-  if (unit === 'USD/share') {
-    return `$${value.toFixed(2)}`
-  }
+  if (unit === 'USD/share') return `$${value.toFixed(2)}`
 
   const abs = Math.abs(value)
   const sign = value < 0 ? '-' : ''
-
   if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`
-  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}K`
+  if (abs >= 1_000_000)     return `${sign}$${(abs / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000)         return `${sign}$${(abs / 1_000).toFixed(1)}K`
   return `${sign}$${abs.toFixed(0)}`
 }
 
@@ -40,26 +32,29 @@ function yoyChange(current, prior) {
   return ((current - prior) / Math.abs(prior)) * 100
 }
 
-function MetricCard({ metric }) {
+function MetricRow({ metric }) {
   const change = yoyChange(metric.value, metric.prior_value)
   const isPositive = change !== null && change >= 0
   const year = metric.period ? metric.period.slice(0, 4) : ''
 
   return (
-    <div className="bg-[#111827] border border-[#1f2937] rounded-xl p-3">
-      <p className="text-gray-500 text-xs mb-1.5 truncate">{metric.label}</p>
-      <p className="text-white font-bold text-base leading-tight">
-        {formatValue(metric.value, metric.unit)}
-      </p>
-      <div className="flex items-center justify-between mt-1.5">
-        {change !== null ? (
-          <span className={`text-xs font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
-            {isPositive ? '▲' : '▼'} {Math.abs(change).toFixed(1)}% YoY
-          </span>
-        ) : (
-          <span className="text-xs text-gray-600">—</span>
+    <div className="flex items-center justify-between py-2.5 border-b border-[#1a2233] last:border-0">
+      {/* Label + period */}
+      <div className="min-w-0 pr-2">
+        <p className="text-gray-400 text-xs truncate">{metric.label}</p>
+        {year && <p className="text-gray-600 text-xs">FY{year}</p>}
+      </div>
+
+      {/* Value + YoY */}
+      <div className="text-right flex-shrink-0">
+        <p className="text-white font-semibold text-sm">
+          {formatValue(metric.value, metric.unit)}
+        </p>
+        {change !== null && (
+          <p className={`text-xs font-medium ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+            {isPositive ? '▲' : '▼'} {Math.abs(change).toFixed(1)}%
+          </p>
         )}
-        {year && <span className="text-xs text-gray-600">FY{year}</span>}
       </div>
     </div>
   )
@@ -78,13 +73,12 @@ function MetricsPanel({ cik }) {
     fetch(`${API_BASE}/company/${cik}/financials`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(json => {
-        // Sort by priority order
         const sorted = [...(json.metrics || [])].sort((a, b) => {
           const ai = METRIC_PRIORITY.indexOf(a.label)
           const bi = METRIC_PRIORITY.indexOf(b.label)
           return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
         })
-        setMetrics(sorted.slice(0, 6))
+        setMetrics(sorted.slice(0, 8))
         setLoading(false)
       })
       .catch(() => {
@@ -95,11 +89,11 @@ function MetricsPanel({ cik }) {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-3 gap-2">
+      <div className="space-y-1">
         {[...Array(6)].map((_, i) => (
-          <div key={i} className="bg-[#111827] border border-[#1f2937] rounded-xl p-3 animate-pulse">
-            <div className="h-3 bg-[#1f2937] rounded mb-2 w-2/3" />
-            <div className="h-5 bg-[#1f2937] rounded w-1/2" />
+          <div key={i} className="flex justify-between py-2.5 border-b border-[#1a2233] animate-pulse">
+            <div className="h-3 bg-[#1f2937] rounded w-1/3" />
+            <div className="h-3 bg-[#1f2937] rounded w-1/4" />
           </div>
         ))}
       </div>
@@ -108,17 +102,23 @@ function MetricsPanel({ cik }) {
 
   if (error || !metrics.length) {
     return (
-      <div className="text-gray-500 text-sm text-center py-4">
+      <p className="text-gray-500 text-sm text-center py-6">
         {error || 'No financial data available'}
-      </div>
+      </p>
     )
   }
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div>
+      {/* Column headers */}
+      <div className="flex justify-between pb-1 mb-1 border-b border-[#1f2937]">
+        <span className="text-xs text-gray-600 uppercase tracking-wide">Metric</span>
+        <span className="text-xs text-gray-600 uppercase tracking-wide">Value · YoY</span>
+      </div>
       {metrics.map((metric, i) => (
-        <MetricCard key={i} metric={metric} />
+        <MetricRow key={i} metric={metric} />
       ))}
+      <p className="text-xs text-gray-600 mt-3 text-center">Annual · EDGAR XBRL</p>
     </div>
   )
 }

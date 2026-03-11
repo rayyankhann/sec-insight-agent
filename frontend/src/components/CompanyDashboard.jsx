@@ -10,18 +10,16 @@
  */
 
 import React, { useState } from 'react'
-import StockChart from './StockChart'
 import MetricsPanel from './MetricsPanel'
 import FilingTimeline from './FilingTimeline'
 
 const TABS = [
-  { id: 'chart', label: 'Price' },
   { id: 'metrics', label: 'Financials' },
   { id: 'timeline', label: 'Filings' },
 ]
 
 function CompanyDashboard({ companyName, ticker, cik, onClose }) {
-  const [activeTab, setActiveTab] = useState('chart')
+  const [activeTab, setActiveTab] = useState('metrics')
 
   return (
     <div className="flex flex-col h-full bg-[#0d1424] border-l border-[#1f2937] animate-fade-in-up">
@@ -71,21 +69,6 @@ function CompanyDashboard({ companyName, ticker, cik, onClose }) {
 
       {/* ─── Tab Content ──────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-
-        {activeTab === 'chart' && (
-          <div>
-            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-medium">
-              1-Year Price History
-            </p>
-            {ticker ? (
-              <StockChart ticker={ticker} />
-            ) : (
-              <p className="text-gray-500 text-sm text-center py-8">
-                No ticker symbol available for this company
-              </p>
-            )}
-          </div>
-        )}
 
         {activeTab === 'metrics' && (
           <div>

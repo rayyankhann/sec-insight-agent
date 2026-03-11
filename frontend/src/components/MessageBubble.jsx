@@ -12,14 +12,17 @@
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import StockChart from './StockChart'
 
 /**
  * @param {Object} props
  * @param {'user' | 'agent' | 'error'} props.role - Who sent the message
  * @param {string} props.content - The message text (markdown for agent)
  * @param {Array}  props.sources - Optional source citations from the agent
+ * @param {string} [props.company_ticker] - Ticker symbol for inline stock chart
+ * @param {string} [props.company_name]   - Company name shown above the chart
  */
-function MessageBubble({ role, content, sources = [] }) {
+function MessageBubble({ role, content, sources = [], company_ticker, company_name }) {
   const isUser = role === 'user'
   const isError = role === 'error'
 
@@ -95,6 +98,29 @@ function MessageBubble({ role, content, sources = [] }) {
               {content}
             </ReactMarkdown>
           </div>
+
+          {/* Inline stock chart — rendered when the agent identified a company with a ticker */}
+          {company_ticker && (
+            <div className="mt-4 pt-4 border-t border-[#1f2937]">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                  {company_name ? `${company_name} · ` : ''}{company_ticker} · 1-Year Price
+                </p>
+                <a
+                  href={`https://finance.yahoo.com/quote/${company_ticker}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-500 hover:text-blue-400 flex items-center gap-1"
+                >
+                  Yahoo Finance
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
+              <StockChart ticker={company_ticker} />
+            </div>
+          )}
         </div>
 
         {/* Source citation badges — shown below the bubble for each tool the agent called.

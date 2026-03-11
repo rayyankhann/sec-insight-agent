@@ -66,10 +66,18 @@ function App() {
 
       setMessages((prev) => [
         ...prev,
-        { role: 'agent', content: data.response, sources: data.sources || [] },
+        {
+          role: 'agent',
+          content: data.response,
+          sources: data.sources || [],
+          // Attach company metadata so MessageBubble can render the inline stock chart
+          company_ticker: data.company_ticker || null,
+          company_name: data.company_name || null,
+          company_cik: data.company_cik || null,
+        },
       ])
 
-      // If the agent identified a company, open the dashboard
+      // Open the sidebar dashboard (Financials + Filings tabs) when a company is found
       if (data.company_cik) {
         setActiveCompany({
           cik: data.company_cik,
