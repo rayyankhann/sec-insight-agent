@@ -13,7 +13,7 @@
 
 import React, { useEffect, useState } from 'react'
 
-const API_BASE = import.meta.env.VITE_MCP_URL || 'http://localhost:8001'
+const API_BASE = import.meta.env.VITE_MCP_URL ?? '/mcp'
 
 const TYPE_STYLES = {
   '10-K': {

@@ -16,11 +16,17 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Forward any request starting with /api to the agent backend
+      // Forward /api/* to the agent backend (port 8000)
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+      // Forward /mcp/* directly to the MCP server (port 8001)
+      '/mcp': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/mcp/, ''),
       },
     },
   },

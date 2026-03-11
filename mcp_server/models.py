@@ -38,9 +38,10 @@ class FilingContentResponse(BaseModel):
 
 
 class StockDataPoint(BaseModel):
-    """A single OHLCV data point for a stock price chart."""
-    date: str     # ISO date string, e.g. "2024-01-15"
-    close: float  # Closing price
+    """A single price data point for a stock chart."""
+    date: str       # ISO datetime or date string
+    close: float    # Closing/last price
+    volume: Optional[float] = None  # Trading volume for that period
 
 
 class StockChartResponse(BaseModel):
@@ -48,6 +49,46 @@ class StockChartResponse(BaseModel):
     ticker: str
     currency: str
     data: list[StockDataPoint]
+
+
+class StockQuoteResponse(BaseModel):
+    """
+    Full stock quote with intraday chart and key stats.
+    Returned by GET /stock/{ticker}/quote.
+    Mirrors the data shown in professional stock widgets.
+    """
+    ticker: str
+    company_name: Optional[str] = None
+    exchange: Optional[str] = None
+    currency: str = "USD"
+
+    # Current price data
+    price: Optional[float] = None
+    prev_close: Optional[float] = None
+    change: Optional[float] = None
+    change_pct: Optional[float] = None
+
+    # After-hours
+    post_market_price: Optional[float] = None
+    post_market_change: Optional[float] = None
+    post_market_change_pct: Optional[float] = None
+
+    # Intraday stats
+    open: Optional[float] = None
+    day_high: Optional[float] = None
+    day_low: Optional[float] = None
+    volume: Optional[float] = None
+
+    # Fundamentals
+    market_cap: Optional[float] = None
+    pe_ratio: Optional[float] = None
+    eps: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    week_52_high: Optional[float] = None
+    week_52_low: Optional[float] = None
+
+    # Intraday chart points (5-min intervals for 1D)
+    chart_data: list[StockDataPoint] = []
 
 
 class FinancialMetric(BaseModel):

@@ -16,7 +16,7 @@ import {
   ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 
-const API_BASE = import.meta.env.VITE_MCP_URL || 'http://localhost:8001'
+const API_BASE = import.meta.env.VITE_MCP_URL ?? '/mcp'
 
 // Format large dollar numbers concisely: 182.50 → $182.50
 function formatPrice(value) {

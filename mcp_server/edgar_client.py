@@ -17,11 +17,12 @@ EDGAR API reference: https://www.sec.gov/developer
 """
 
 import re
+import asyncio
 from datetime import datetime
 import httpx
 from typing import Optional
 
-from models import CompanySearchResult, Filing, StockDataPoint, FinancialMetric
+from models import CompanySearchResult, Filing, StockDataPoint, StockQuoteResponse, FinancialMetric
 
 # EDGAR requires a descriptive User-Agent header on every request.
 # Without it, requests may be rejected or rate-limited.
@@ -482,6 +483,109 @@ async def fetch_stock_chart(ticker: str, range_: str = "1y") -> list[StockDataPo
         points.append(StockDataPoint(date=date_str, close=round(close, 2)))
 
     return points
+
+
+async def fetch_stock_quote(ticker: str) -> StockQuoteResponse:
+    """
+    Fetch a full stock quote: intraday chart + all key stats from Yahoo Finance.
+
+    Makes two parallel requests:
+    1. Chart API (range=1d, interval=5m) — intraday price series + market metadata
+    2. Quote API (v7) — additional fundamentals: P/E, EPS, market cap, dividend yield
+
+    Args:
+        ticker: Stock ticker symbol, e.g. "AAPL", "NVDA"
+
+    Returns:
+        StockQuoteResponse with price, stats, and 1D intraday chart points.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+
+    chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}"
+    chart_params = {"range": "1d", "interval": "5m", "includePrePost": "true"}
+
+    quote_url = "https://query1.finance.yahoo.com/v7/finance/quote"
+    quote_params = {
+        "symbols": ticker.upper(),
+        "fields": "shortName,longName,trailingPE,epsTrailingTwelveMonths,trailingAnnualDividendYield,marketCap,fullExchangeName",
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        chart_task = client.get(chart_url, params=chart_params, headers=headers)
+        quote_task = client.get(quote_url, params=quote_params, headers=headers)
+        chart_resp, quote_resp = await asyncio.gather(chart_task, quote_task)
+
+    # ── Parse chart response ──────────────────────────────────────────────────
+    chart_json = chart_resp.json()
+    results = chart_json.get("chart", {}).get("result", [])
+    if not results:
+        raise ValueError(f"No chart data returned for {ticker}")
+
+    result = results[0]
+    meta = result.get("meta", {})
+    timestamps = result.get("timestamp", [])
+    quote_data = result.get("indicators", {}).get("quote", [{}])[0]
+    closes = quote_data.get("close", [])
+    volumes = quote_data.get("volume", [])
+
+    chart_points: list[StockDataPoint] = []
+    for ts, close, vol in zip(timestamps, closes, volumes or [None] * len(closes)):
+        if close is None:
+            continue
+        dt_str = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:%M")
+        chart_points.append(StockDataPoint(
+            date=dt_str,
+            close=round(close, 4),
+            volume=float(vol) if vol else None,
+        ))
+
+    # ── Parse quote response ──────────────────────────────────────────────────
+    quote_json = quote_resp.json()
+    q = {}
+    quote_results = quote_json.get("quoteResponse", {}).get("result", [])
+    if quote_results:
+        q = quote_results[0]
+
+    # Post-market data (available after 4 PM ET)
+    post_price = meta.get("postMarketPrice") or q.get("postMarketPrice")
+    post_change = meta.get("postMarketChange") or q.get("postMarketChange")
+    post_change_pct = meta.get("postMarketChangePercent") or q.get("postMarketChangePercent")
+
+    # 52-week range from meta
+    week52_high = meta.get("fiftyTwoWeekHigh") or q.get("fiftyTwoWeekHigh")
+    week52_low = meta.get("fiftyTwoWeekLow") or q.get("fiftyTwoWeekLow")
+
+    company_name = (
+        q.get("longName") or q.get("shortName") or meta.get("instrumentType", "")
+    )
+
+    return StockQuoteResponse(
+        ticker=ticker.upper(),
+        company_name=company_name or None,
+        exchange=q.get("fullExchangeName") or meta.get("fullExchangeName"),
+        currency=meta.get("currency", "USD"),
+        price=meta.get("regularMarketPrice"),
+        prev_close=meta.get("previousClose") or meta.get("chartPreviousClose"),
+        change=meta.get("regularMarketChange"),
+        change_pct=meta.get("regularMarketChangePercent"),
+        post_market_price=post_price,
+        post_market_change=post_change,
+        post_market_change_pct=post_change_pct,
+        open=meta.get("regularMarketOpen"),
+        day_high=meta.get("regularMarketDayHigh"),
+        day_low=meta.get("regularMarketDayLow"),
+        volume=meta.get("regularMarketVolume"),
+        market_cap=q.get("marketCap"),
+        pe_ratio=q.get("trailingPE"),
+        eps=q.get("epsTrailingTwelveMonths"),
+        dividend_yield=q.get("trailingAnnualDividendYield"),
+        week_52_high=week52_high,
+        week_52_low=week52_low,
+        chart_data=chart_points,
+    )
 
 
 # ─── EDGAR XBRL Financial Metrics ─────────────────────────────────────────────

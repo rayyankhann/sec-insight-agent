@@ -20,6 +20,7 @@ from edgar_client import (
     get_company_filings,
     fetch_filing_text,
     fetch_stock_chart,
+    fetch_stock_quote,
     fetch_company_financials,
     fetch_filing_timeline,
 )
@@ -28,6 +29,7 @@ from models import (
     FilingsResponse,
     FilingContentResponse,
     StockChartResponse,
+    StockQuoteResponse,
     FinancialsResponse,
     FilingTimelineResponse,
     FilingTimelineItem,
@@ -231,6 +233,41 @@ async def get_stock_chart(
 
     # Detect the currency from the first data point (USD for US stocks)
     return StockChartResponse(ticker=ticker.upper(), currency="USD", data=data)
+
+
+@app.get(
+    "/stock/{ticker}/quote",
+    response_model=StockQuoteResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_stock_quote(ticker: str) -> StockQuoteResponse:
+    """
+    Fetch a full real-time stock quote with intraday chart and key stats.
+
+    Makes two parallel requests to Yahoo Finance:
+    1. Intraday chart data (1D, 5-min intervals)
+    2. Quote data: P/E ratio, EPS, market cap, dividend yield, 52-week range
+
+    Used to power the Perplexity-style stock card in the frontend.
+
+    Example: GET /stock/NVDA/quote
+    """
+    try:
+        quote = await fetch_stock_quote(ticker=ticker)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Yahoo Finance returned an error for '{ticker}': HTTP {e.response.status_code}",
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Network error fetching quote data: {str(e)}",
+        )
+    return quote
 
 
 @app.get(

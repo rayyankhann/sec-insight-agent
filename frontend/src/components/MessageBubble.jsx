@@ -12,7 +12,7 @@
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import StockChart from './StockChart'
+import StockCard from './StockCard'
 
 /**
  * @param {Object} props
@@ -118,7 +118,7 @@ function MessageBubble({ role, content, sources = [], company_ticker, company_na
                   </svg>
                 </a>
               </div>
-              <StockChart ticker={company_ticker} />
+              <StockCard ticker={company_ticker} companyName={company_name} />
             </div>
           )}
         </div>
