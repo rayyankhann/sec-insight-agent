@@ -121,6 +121,37 @@ class FilingTimelineResponse(BaseModel):
     filings: list[FilingTimelineItem]
 
 
+class NewsItem(BaseModel):
+    """A single news headline — returned as part of NewsResponse."""
+    title: str
+    publisher: str = ""
+    link: str = ""
+    published: str = ""   # ISO datetime string
+
+
+class NewsResponse(BaseModel):
+    """Recent news headlines for a company — returned by GET /stock/{ticker}/news."""
+    ticker: str
+    items: list[NewsItem] = []
+
+
+class InsiderTrade(BaseModel):
+    """A single Form 4 insider transaction."""
+    name: str                         # Reporting owner's name
+    title: str = ""                   # Officer title or relationship
+    date: str                         # Transaction date, e.g. "2024-08-22"
+    type: str                         # "Buy" (Acquired) or "Sell" (Disposed)
+    shares: float                     # Number of shares transacted
+    price: Optional[float] = None     # Price per share at transaction
+    value: Optional[float] = None     # Total dollar value (shares × price)
+
+
+class InsiderTradesResponse(BaseModel):
+    """Recent Form 4 insider transactions — returned by GET /company/{cik}/insiders."""
+    cik: str
+    trades: list[InsiderTrade] = []
+
+
 class HealthResponse(BaseModel):
     """Simple health check response — returned by GET /health."""
     status: str

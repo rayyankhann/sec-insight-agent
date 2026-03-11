@@ -1,21 +1,24 @@
 /**
  * CompanyDashboard.jsx — Right-panel dashboard shown when a company is discussed.
  *
- * Slides in when the agent identifies a company, showing three sections:
- *   1. Stock price chart (1-year weekly, via Yahoo Finance proxy)
- *   2. Key financial metrics (from EDGAR XBRL structured data)
- *   3. Filing timeline (10-K / 10-Q / 8-K history, clickable links)
- *
- * All data is fetched from the MCP server — no extra LLM calls, no extra cost.
+ * Four tabs, all data from free sources:
+ *   Financials  — EDGAR XBRL structured data
+ *   Filings     — 10-K / 10-Q / 8-K history
+ *   News        — Yahoo Finance headlines (via yfinance)
+ *   Insiders    — Form 4 insider buy/sell transactions (EDGAR)
  */
 
 import React, { useState } from 'react'
 import MetricsPanel from './MetricsPanel'
 import FilingTimeline from './FilingTimeline'
+import NewsCard from './NewsCard'
+import InsiderTrading from './InsiderTrading'
 
 const TABS = [
-  { id: 'metrics', label: 'Financials' },
-  { id: 'timeline', label: 'Filings' },
+  { id: 'metrics',   label: 'Financials' },
+  { id: 'timeline',  label: 'Filings'    },
+  { id: 'news',      label: 'News'       },
+  { id: 'insiders',  label: 'Insiders'   },
 ]
 
 function CompanyDashboard({ companyName, ticker, cik, onClose }) {
@@ -42,6 +45,7 @@ function CompanyDashboard({ companyName, ticker, cik, onClose }) {
             onClick={onClose}
             className="flex-shrink-0 ml-2 w-6 h-6 rounded-md flex items-center justify-center text-gray-500 hover:text-gray-300 hover:bg-[#1f2937] transition-colors"
             aria-label="Close dashboard"
+            title="Close (click the ticker badge in the header to reopen)"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -49,7 +53,7 @@ function CompanyDashboard({ companyName, ticker, cik, onClose }) {
           </button>
         </div>
 
-        {/* Tab bar */}
+        {/* Tab bar — 4 tabs */}
         <div className="flex gap-1 mt-3">
           {TABS.map(tab => (
             <button
@@ -85,6 +89,27 @@ function CompanyDashboard({ companyName, ticker, cik, onClose }) {
               Filing History · Click to open on SEC.gov
             </p>
             <FilingTimeline cik={cik} />
+          </div>
+        )}
+
+        {activeTab === 'news' && (
+          <div>
+            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-medium">
+              Recent Headlines · Yahoo Finance
+            </p>
+            {ticker
+              ? <NewsCard ticker={ticker} />
+              : <p className="text-gray-600 text-xs text-center py-6">No ticker available.</p>
+            }
+          </div>
+        )}
+
+        {activeTab === 'insiders' && (
+          <div>
+            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-medium">
+              Insider Transactions · SEC EDGAR Form 4
+            </p>
+            <InsiderTrading cik={cik} />
           </div>
         )}
       </div>

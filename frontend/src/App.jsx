@@ -23,13 +23,58 @@ import CompanyDashboard from './components/CompanyDashboard'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
+// Generate 3 context-aware follow-up suggestions based on the agent response
+function getFollowUpSuggestions(content, companyName, ticker) {
+  if (!companyName && !ticker) return []
+  const name = companyName || ticker
+  const text = (content || '').toLowerCase()
+  const pool = []
+
+  if (text.includes('10-k') || text.includes('annual report')) {
+    pool.push(`What were ${name}'s biggest risk factors?`)
+    pool.push(`How did ${name}'s revenue change year over year?`)
+    pool.push(`What did ${name} say about their future outlook?`)
+  }
+  if (text.includes('10-q') || text.includes('quarter')) {
+    pool.push(`What was ${name}'s EPS this quarter?`)
+    pool.push(`Did ${name} revise their annual guidance?`)
+  }
+  if (text.includes('8-k')) {
+    pool.push(`Show me ${name}'s most recent 10-K`)
+    pool.push(`What were ${name}'s latest quarterly earnings?`)
+  }
+  if (text.includes('revenue') || text.includes('earnings') || text.includes('profit')) {
+    pool.push(`What's ${name}'s total debt situation?`)
+    pool.push(`Did ${name} mention any upcoming risks?`)
+  }
+  if (text.includes('risk')) {
+    pool.push(`How did ${name}'s revenue grow last year?`)
+    pool.push(`Who are ${name}'s main competitors?`)
+  }
+
+  // Always include fallbacks
+  pool.push(`What's ${name}'s business overview?`)
+  pool.push(`Show ${name}'s most recent 8-K filings`)
+  pool.push(`What risks did ${name} disclose in their last filing?`)
+
+  const seen = new Set()
+  const result = []
+  for (const s of pool) {
+    if (!seen.has(s) && result.length < 3) { seen.add(s); result.push(s) }
+  }
+  return result
+}
+
 function App() {
   const [messages, setMessages] = useState([])
   const [isLoading, setIsLoading] = useState(false)
 
-  // Active company shown in the right-panel dashboard
+  // Active company — persists even when dashboard is closed
   const [activeCompany, setActiveCompany] = useState(null)
   // { cik, ticker, name }
+
+  // Controls whether the right-panel is visible (independent of activeCompany)
+  const [dashboardOpen, setDashboardOpen] = useState(false)
 
   const handleSend = useCallback(async (userMessage) => {
     const updatedMessages = [
@@ -64,26 +109,25 @@ function App() {
 
       const data = await response.json()
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'agent',
-          content: data.response,
-          sources: data.sources || [],
-          // Attach company metadata so MessageBubble can render the inline stock chart
-          company_ticker: data.company_ticker || null,
-          company_name: data.company_name || null,
-          company_cik: data.company_cik || null,
-        },
-      ])
+      const agentMsg = {
+        role: 'agent',
+        content: data.response,
+        sources: data.sources || [],
+        company_ticker: data.company_ticker || null,
+        company_name: data.company_name || null,
+        company_cik: data.company_cik || null,
+        suggestions: getFollowUpSuggestions(data.response, data.company_name, data.company_ticker),
+      }
+      setMessages((prev) => [...prev, agentMsg])
 
-      // Open the sidebar dashboard (Financials + Filings tabs) when a company is found
+      // Open / update the sidebar dashboard when a company is identified
       if (data.company_cik) {
         setActiveCompany({
           cik: data.company_cik,
           ticker: data.company_ticker,
           name: data.company_name,
         })
+        setDashboardOpen(true)
       }
     } catch (error) {
       const isNetworkError = error.message.includes('fetch') || error.message.includes('Failed to fetch')
@@ -102,7 +146,7 @@ function App() {
     }
   }, [messages])
 
-  const hasDashboard = !!activeCompany
+  const hasDashboard = !!activeCompany && dashboardOpen
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0f1e]">
@@ -124,12 +168,23 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Show active company badge in header when dashboard is open */}
+            {/* Company pill — clickable to toggle the dashboard panel */}
             {activeCompany && (
-              <div className="hidden sm:flex items-center gap-2 text-xs text-gray-300 bg-[#1a2233] border border-[#1f2937] rounded-full px-3 py-1.5">
+              <button
+                onClick={() => setDashboardOpen(v => !v)}
+                title={dashboardOpen ? 'Hide dashboard' : 'Show dashboard'}
+                className="hidden sm:flex items-center gap-2 text-xs text-gray-300 bg-[#1a2233] border border-[#1f2937] rounded-full px-3 py-1.5 hover:border-blue-700 hover:text-blue-300 transition-colors"
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
                 {activeCompany.ticker || activeCompany.name}
-              </div>
+                {/* chevron flips direction based on panel state */}
+                <svg
+                  className={`w-3 h-3 opacity-60 transition-transform ${dashboardOpen ? 'rotate-180' : ''}`}
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             )}
             <div className="flex items-center gap-2 text-xs text-gray-400 bg-[#1a2233] border border-[#1f2937] rounded-full px-3 py-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
@@ -144,7 +199,11 @@ function App() {
 
         {/* Left: Chat panel */}
         <div className={`flex flex-col flex-1 min-w-0 transition-all duration-300 ${hasDashboard ? 'border-r border-[#1f2937]' : ''}`}>
-          <ChatWindow messages={messages} isLoading={isLoading} />
+          <ChatWindow
+            messages={messages}
+            isLoading={isLoading}
+            onSuggestionClick={handleSend}
+          />
           <SearchBar onSend={handleSend} isLoading={isLoading} />
         </div>
 
@@ -155,7 +214,7 @@ function App() {
               companyName={activeCompany.name}
               ticker={activeCompany.ticker}
               cik={activeCompany.cik}
-              onClose={() => setActiveCompany(null)}
+              onClose={() => setDashboardOpen(false)}
             />
           </div>
         )}

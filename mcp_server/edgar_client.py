@@ -713,3 +713,161 @@ async def fetch_filing_timeline(cik: str, limit_per_type: int = 8) -> list[dict]
     # Sort by date descending for the timeline view
     timeline.sort(key=lambda x: x["filed_date"], reverse=True)
     return timeline
+
+
+# ─── Company News ──────────────────────────────────────────────────────────────
+
+async def fetch_company_news(ticker: str) -> list[dict]:
+    """
+    Fetch recent news headlines for a company via yfinance.
+
+    yfinance wraps Yahoo Finance's news API. The item structure changed in
+    v0.2 — content is nested under a 'content' key. We handle both formats.
+
+    Args:
+        ticker: Stock ticker symbol, e.g. "AAPL"
+
+    Returns:
+        List of dicts with keys: title, publisher, link, published (ISO string).
+    """
+    import yfinance as yf
+
+    loop = asyncio.get_event_loop()
+    t = yf.Ticker(ticker.upper())
+    raw_news = await loop.run_in_executor(None, lambda: t.news)
+
+    results = []
+    for item in (raw_news or [])[:12]:
+        content = item.get("content", {})
+        if content and isinstance(content, dict):
+            title = content.get("title", "")
+            publisher = (content.get("provider") or {}).get("displayName", "")
+            canonical = content.get("canonicalUrl") or {}
+            link = canonical.get("url", "") if isinstance(canonical, dict) else ""
+            pub_date = content.get("pubDate", "")
+        else:
+            title = item.get("title", "")
+            publisher = item.get("publisher", "")
+            link = item.get("link", "")
+            pt = item.get("providerPublishTime")
+            pub_date = datetime.utcfromtimestamp(pt).strftime("%Y-%m-%dT%H:%M:%SZ") if pt else ""
+
+        if title:
+            results.append({"title": title, "publisher": publisher, "link": link, "published": pub_date})
+
+    return results[:10]
+
+
+# ─── Insider Trades (Form 4) ───────────────────────────────────────────────────
+
+async def fetch_insider_trades(cik: str) -> list[dict]:
+    """
+    Fetch recent Form 4 insider transactions directly from EDGAR.
+
+    Process:
+      1. GET /submissions/CIK{cik}.json  — company filing list (one request)
+      2. Filter to the 6 most recent Form 4 filings
+      3. Concurrently fetch & parse each Form 4 XML to extract transactions
+         (nonDerivativeTransaction — covers open-market buys and sells)
+
+    Returns list of dicts: {name, title, date, type, shares, price, value}
+    sorted newest-first.
+    """
+    from xml.etree import ElementTree as ET
+
+    padded = cik.zfill(10)
+    numeric_cik = str(int(cik))  # strips leading zeros for archive URLs
+
+    sec_headers = {
+        "User-Agent": "SEC Insight Agent research@secinsight.com",
+        "Accept": "application/json, text/xml, */*",
+    }
+
+    # 1. Fetch company submissions to get Form 4 filing list
+    submissions_url = f"https://data.sec.gov/submissions/CIK{padded}.json"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(submissions_url, headers=sec_headers)
+        resp.raise_for_status()
+        data = resp.json()
+
+    recent = data.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    dates = recent.get("filingDate", [])
+    accessions = recent.get("accessionNumber", [])
+    primary_docs = recent.get("primaryDocument", [])
+
+    # Collect the 6 most recent Form 4 filings
+    form4s = []
+    for i, f in enumerate(forms):
+        if f == "4" and len(form4s) < 6:
+            form4s.append({
+                "date": dates[i] if i < len(dates) else "",
+                "accession": accessions[i].replace("-", "") if i < len(accessions) else "",
+                "doc": primary_docs[i] if i < len(primary_docs) else "",
+            })
+
+    if not form4s:
+        return []
+
+    # 2. Parse each Form 4 XML concurrently
+    async def parse_form4(filing: dict) -> list[dict]:
+        if not filing["doc"] or not filing["accession"]:
+            return []
+        url = (
+            f"https://www.sec.gov/Archives/edgar/data/"
+            f"{numeric_cik}/{filing['accession']}/{filing['doc']}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as c:
+                r = await c.get(url, headers=sec_headers)
+                if r.status_code != 200:
+                    return []
+                root = ET.fromstring(r.text)
+        except Exception:
+            return []
+
+        # Owner name + title
+        owner_name = ""
+        owner_title = ""
+        for tag in ("rptOwnerName", "reportingOwnerName"):
+            el = root.find(f".//{tag}")
+            if el is not None and el.text:
+                owner_name = el.text.strip().title()
+                break
+        for tag in ("officerTitle", "reporterTitle"):
+            el = root.find(f".//{tag}")
+            if el is not None and el.text:
+                owner_title = el.text.strip().title()
+                break
+
+        trades = []
+        for txn in root.iter("nonDerivativeTransaction"):
+            try:
+                shares_el = txn.find(".//transactionShares/value")
+                price_el  = txn.find(".//transactionPricePerShare/value")
+                code_el   = txn.find(".//transactionAcquiredDisposedCode/value")
+                date_el   = txn.find(".//transactionDate/value")
+
+                shares = float(shares_el.text) if shares_el is not None and shares_el.text else None
+                price  = float(price_el.text)  if price_el  is not None and price_el.text  else None
+                code   = code_el.text.strip()  if code_el   is not None and code_el.text   else None
+                txn_date = date_el.text.strip() if date_el  is not None and date_el.text   else filing["date"]
+
+                if shares is not None and code in ("A", "D"):
+                    trades.append({
+                        "name":  owner_name or "Unknown",
+                        "title": owner_title or "Insider",
+                        "date":  txn_date,
+                        "type":  "Buy" if code == "A" else "Sell",
+                        "shares": shares,
+                        "price":  price,
+                        "value":  round(shares * price) if price else None,
+                    })
+            except Exception:
+                continue
+        return trades
+
+    all_results = await asyncio.gather(*[parse_form4(f) for f in form4s])
+    merged = [t for batch in all_results for t in batch]
+    merged.sort(key=lambda x: x["date"], reverse=True)
+    return merged[:20]

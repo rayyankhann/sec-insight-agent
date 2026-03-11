@@ -15,14 +15,17 @@ import remarkGfm from 'remark-gfm'
 import StockCard from './StockCard'
 
 /**
- * @param {Object} props
- * @param {'user' | 'agent' | 'error'} props.role - Who sent the message
- * @param {string} props.content - The message text (markdown for agent)
- * @param {Array}  props.sources - Optional source citations from the agent
- * @param {string} [props.company_ticker] - Ticker symbol for inline stock chart
- * @param {string} [props.company_name]   - Company name shown above the chart
+ * @param {Object}   props
+ * @param {'user' | 'agent' | 'error'} props.role
+ * @param {string}   props.content
+ * @param {Array}    props.sources
+ * @param {string}   [props.company_ticker]
+ * @param {string}   [props.company_name]
+ * @param {string[]} [props.suggestions]      - Follow-up suggestion strings
+ * @param {boolean}  [props.isLatest]         - Only the latest message shows suggestions
+ * @param {Function} [props.onSuggestionClick]
  */
-function MessageBubble({ role, content, sources = [], company_ticker, company_name }) {
+function MessageBubble({ role, content, sources = [], company_ticker, company_name, suggestions = [], isLatest = false, onSuggestionClick }) {
   const isUser = role === 'user'
   const isError = role === 'error'
 
@@ -122,6 +125,21 @@ function MessageBubble({ role, content, sources = [], company_ticker, company_na
             </div>
           )}
         </div>
+
+        {/* Follow-up suggestion chips — only on the most recent agent message */}
+        {isLatest && suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-2 pl-1 mt-1">
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => onSuggestionClick?.(s)}
+                className="text-xs text-gray-300 bg-[#111827] border border-[#1f2937] rounded-full px-3 py-1.5 hover:border-blue-600 hover:text-blue-300 hover:bg-blue-950/40 transition-colors text-left"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Source citation badges — shown below the bubble for each tool the agent called.
             The "SEC Filing" badge is a real link to the document on SEC.gov when a URL is available. */}

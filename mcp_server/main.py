@@ -23,6 +23,8 @@ from edgar_client import (
     fetch_stock_quote,
     fetch_company_financials,
     fetch_filing_timeline,
+    fetch_company_news,
+    fetch_insider_trades,
 )
 from models import (
     CompanySearchResult,
@@ -33,6 +35,10 @@ from models import (
     FinancialsResponse,
     FilingTimelineResponse,
     FilingTimelineItem,
+    NewsItem,
+    NewsResponse,
+    InsiderTrade,
+    InsiderTradesResponse,
     HealthResponse,
     ErrorResponse,
 )
@@ -328,3 +334,57 @@ async def get_filing_timeline(cik: str) -> FilingTimelineResponse:
 
     items = [FilingTimelineItem(**f) for f in filings]
     return FilingTimelineResponse(cik=cik, filings=items)
+
+
+@app.get(
+    "/stock/{ticker}/news",
+    response_model=NewsResponse,
+    responses={502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_company_news(ticker: str) -> NewsResponse:
+    """
+    Fetch recent news headlines for a stock ticker via Yahoo Finance (yfinance).
+
+    Returns up to 10 headlines with title, publisher, link, and publish date.
+    No API key required — uses the same yfinance library as the quote endpoint.
+
+    Example: GET /stock/AAPL/news
+    """
+    try:
+        items_raw = await fetch_company_news(ticker=ticker)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching news for {ticker}: {str(e)}")
+
+    items = [NewsItem(**item) for item in items_raw]
+    return NewsResponse(ticker=ticker.upper(), items=items)
+
+
+@app.get(
+    "/company/{cik}/insiders",
+    response_model=InsiderTradesResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    tags=["Filings"],
+)
+async def get_insider_trades(cik: str) -> InsiderTradesResponse:
+    """
+    Fetch recent Form 4 insider transactions from EDGAR.
+
+    Parses the 6 most recent Form 4 XML filings for the company, extracting:
+    open-market buys and sells with share count, price, and total value.
+    All data comes directly from SEC EDGAR — no external API, completely free.
+
+    Example: GET /company/0000320193/insiders
+    """
+    try:
+        trades_raw = await fetch_insider_trades(cik=cik)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"EDGAR error fetching insider trades for CIK {cik}: HTTP {e.response.status_code}",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching insider trades: {str(e)}")
+
+    trades = [InsiderTrade(**t) for t in trades_raw]
+    return InsiderTradesResponse(cik=cik, trades=trades)

@@ -31,11 +31,12 @@ Just type your question below and I'll search the filings to find the answer.`,
 }
 
 /**
- * @param {Object} props
- * @param {Array}   props.messages          - Array of { role, content, sources } message objects
- * @param {boolean} props.isLoading         - Whether to show the loading indicator at the bottom
+ * @param {Object}   props
+ * @param {Array}    props.messages           - Array of message objects
+ * @param {boolean}  props.isLoading          - Whether to show the loading indicator
+ * @param {Function} props.onSuggestionClick  - Called with a suggestion string when a chip is clicked
  */
-function ChatWindow({ messages, isLoading }) {
+function ChatWindow({ messages, isLoading, onSuggestionClick }) {
   // Ref to the invisible div at the bottom of the message list
   const bottomRef = useRef(null)
 
@@ -67,6 +68,9 @@ function ChatWindow({ messages, isLoading }) {
             sources={message.sources}
             company_ticker={message.company_ticker}
             company_name={message.company_name}
+            suggestions={message.suggestions}
+            isLatest={index === messages.length - 1}
+            onSuggestionClick={onSuggestionClick}
           />
         ))}
 
