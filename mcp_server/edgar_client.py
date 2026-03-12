@@ -878,6 +878,150 @@ def _classify_impact(event_name: str) -> str:
     return "low"
 
 
+# ---------------------------------------------------------------------------
+# Event metadata: impact score (1-10) + affected asset classes
+# Keys are lowercase substrings to match against the event name.
+# First matching key wins (most specific first).
+# ---------------------------------------------------------------------------
+
+_EVENT_META: list[tuple[str, int, list[str]]] = [
+    # Central bank decisions — highest market movers
+    ("fomc",                        10, ["US Equities", "USD", "Bonds", "Gold"]),
+    ("federal open market",         10, ["US Equities", "USD", "Bonds", "Gold"]),
+    ("fed rate",                    10, ["US Equities", "USD", "Bonds", "Gold"]),
+    ("federal reserve",             10, ["US Equities", "USD", "Bonds", "Gold"]),
+    ("powell speaks",               9,  ["US Equities", "USD", "Bonds"]),
+    ("fed chair",                   9,  ["US Equities", "USD", "Bonds"]),
+    ("yellen",                      8,  ["USD", "Bonds"]),
+    ("ecb rate",                    10, ["EUR/USD", "EU Equities", "Bonds"]),
+    ("ecb interest",                10, ["EUR/USD", "EU Equities", "Bonds"]),
+    ("ecb monetary",                10, ["EUR/USD", "EU Equities", "Bonds"]),
+    ("ecb press",                   9,  ["EUR/USD", "EU Equities"]),
+    ("lagarde",                     8,  ["EUR/USD", "EU Equities"]),
+    ("bank of england",             10, ["GBP/USD", "UK Equities", "Bonds"]),
+    ("boe rate",                    10, ["GBP/USD", "UK Equities", "Bonds"]),
+    ("mpc rate",                    10, ["GBP/USD", "UK Equities"]),
+    ("bank of japan",               10, ["USD/JPY", "JP Equities", "Bonds"]),
+    ("boj rate",                    10, ["USD/JPY", "JP Equities"]),
+    ("boj policy",                  10, ["USD/JPY", "JP Equities"]),
+    ("bank of canada",              9,  ["USD/CAD", "CA Equities"]),
+    ("boc rate",                    9,  ["USD/CAD", "CA Equities"]),
+    ("rba rate",                    9,  ["AUD/USD", "AU Equities"]),
+    ("reserve bank of australia",   9,  ["AUD/USD", "AU Equities"]),
+    ("central bank rate",           9,  ["Equities", "Bonds", "Forex"]),
+    ("interest rate decision",      9,  ["Equities", "Bonds", "Forex"]),
+    ("rate decision",               9,  ["Equities", "Bonds", "Forex"]),
+    ("monetary policy statement",   9,  ["Equities", "Bonds", "Forex"]),
+
+    # US labor market
+    ("nonfarm payroll",             9,  ["USD", "US Equities", "Gold", "Bonds"]),
+    ("non-farm payroll",            9,  ["USD", "US Equities", "Gold", "Bonds"]),
+    (" nfp ",                       9,  ["USD", "US Equities", "Gold"]),
+    ("unemployment rate",           8,  ["USD", "US Equities"]),
+    ("jobless claims",              6,  ["USD", "US Equities"]),
+    ("initial claims",              6,  ["USD", "US Equities"]),
+    ("continuing claims",           5,  ["USD", "US Equities"]),
+    ("average hourly earnings",     7,  ["USD", "Bonds", "US Equities"]),
+    ("employment situation",        8,  ["USD", "US Equities"]),
+    ("employment change",           7,  ["USD", "US Equities"]),
+    ("adp employment",              6,  ["USD", "US Equities"]),
+    ("jolts",                       6,  ["USD", "US Equities"]),
+    ("labor cost",                  6,  ["USD", "Bonds"]),
+    ("unit labor",                  5,  ["USD", "Bonds"]),
+
+    # US inflation
+    ("consumer price index",        9,  ["USD", "Bonds", "Gold", "US Equities"]),
+    (" cpi ",                       9,  ["USD", "Bonds", "Gold", "US Equities"]),
+    ("core cpi",                    9,  ["USD", "Bonds", "Gold", "US Equities"]),
+    ("pce price",                   9,  ["USD", "Bonds", "Gold", "US Equities"]),
+    ("core pce",                    9,  ["USD", "Bonds", "Gold", "US Equities"]),
+    ("personal consumption expenditure", 9, ["USD", "Bonds", "Gold"]),
+    ("producer price",              7,  ["USD", "Bonds"]),
+    (" ppi ",                       7,  ["USD", "Bonds"]),
+    ("core ppi",                    7,  ["USD", "Bonds"]),
+    ("import price",                5,  ["USD"]),
+    ("export price",                5,  ["USD"]),
+
+    # US GDP & growth
+    ("gross domestic product",      8,  ["USD", "US Equities", "Bonds"]),
+    (" gdp ",                       8,  ["USD", "US Equities", "Bonds"]),
+    ("gdp growth",                  8,  ["USD", "US Equities", "Bonds"]),
+    ("gdp annualized",              8,  ["USD", "US Equities", "Bonds"]),
+
+    # US consumer & retail
+    ("retail sales",                7,  ["USD", "US Equities"]),
+    ("consumer confidence",         6,  ["USD", "US Equities"]),
+    ("consumer sentiment",          6,  ["USD", "US Equities"]),
+    ("michigan sentiment",          6,  ["USD", "US Equities"]),
+    ("personal spending",           6,  ["USD", "US Equities"]),
+    ("personal income",             5,  ["USD", "US Equities"]),
+
+    # US manufacturing & services
+    (" ism ",                       7,  ["USD", "US Equities"]),
+    ("ism manufacturing",           7,  ["USD", "US Equities"]),
+    ("ism services",                7,  ["USD", "US Equities"]),
+    ("ism non-manufacturing",       7,  ["USD", "US Equities"]),
+    ("purchasing managers",         6,  ["USD", "Equities"]),
+    (" pmi ",                       6,  ["USD", "Equities"]),
+    ("manufacturing pmi",           6,  ["USD", "Equities"]),
+    ("services pmi",                6,  ["USD", "Equities"]),
+    ("composite pmi",               6,  ["USD", "Equities"]),
+    ("durable goods",               7,  ["USD", "US Equities"]),
+    ("industrial production",       6,  ["USD", "US Equities"]),
+    ("capacity utilization",        5,  ["USD", "US Equities"]),
+    ("factory orders",              5,  ["USD", "US Equities"]),
+    ("manufacturing output",        6,  ["USD", "US Equities"]),
+
+    # Housing
+    ("housing starts",              6,  ["USD", "US Equities"]),
+    ("building permits",            6,  ["USD", "US Equities"]),
+    ("existing home sales",         5,  ["USD", "US Equities"]),
+    ("new home sales",              5,  ["USD", "US Equities"]),
+    ("pending home sales",          5,  ["USD", "US Equities"]),
+    ("case-shiller",                5,  ["USD", "US Equities"]),
+    ("nahb",                        4,  ["USD", "US Equities"]),
+
+    # Trade & current account
+    ("trade balance",               6,  ["USD", "US Equities"]),
+    ("current account",             5,  ["USD", "Forex"]),
+    ("balance of payments",         5,  ["Forex"]),
+
+    # Business surveys
+    ("business confidence",         5,  ["Equities", "Forex"]),
+    ("business climate",            5,  ["Equities", "Forex"]),
+    ("zew",                         6,  ["EUR/USD", "EU Equities"]),
+    ("ifo",                         6,  ["EUR/USD", "EU Equities"]),
+    ("empire state",                5,  ["USD", "US Equities"]),
+    ("philly fed",                  5,  ["USD", "US Equities"]),
+    ("kansas city fed",             4,  ["USD", "US Equities"]),
+    ("richmond fed",                4,  ["USD", "US Equities"]),
+
+    # Commodities & energy
+    ("crude oil inventories",       6,  ["Oil", "Energy Equities", "USD"]),
+    ("eia crude",                   6,  ["Oil", "Energy Equities"]),
+    ("natural gas",                 5,  ["Natural Gas", "Energy Equities"]),
+
+    # Leading indicators
+    ("leading indicator",           5,  ["Equities", "Forex"]),
+    ("leading index",               5,  ["Equities", "Forex"]),
+]
+
+
+def _get_event_meta(event_name: str) -> tuple[int, list[str]]:
+    """Return (impact_score, affected_assets) for a given event name."""
+    name_lower = f" {event_name.lower()} "
+    for keyword, score, assets in _EVENT_META:
+        if keyword in name_lower:
+            return score, assets
+    # Fallback: derive from impact classification
+    impact = _classify_impact(event_name)
+    if impact == "high":
+        return 7, ["Equities", "Forex"]
+    if impact == "medium":
+        return 4, ["Equities", "Forex"]
+    return 2, []
+
+
 async def fetch_economic_calendar(date_from: str, date_to: str) -> list[dict]:
     """
     Fetch economic calendar events for a date range from Nasdaq's public API.
@@ -940,6 +1084,8 @@ async def fetch_economic_calendar(date_from: str, date_to: str) -> list[dict]:
                         "previous": (row.get("previous") or "").replace("&nbsp;", "").strip() or None,
                         "impact":   _classify_impact(name),
                         "description": (row.get("description") or "").replace("&lt;BR/&gt;", " ").strip() or None,
+                        "impact_score":    _get_event_meta(name)[0],
+                        "affected_assets": _get_event_meta(name)[1],
                     })
                 return events
         except Exception:

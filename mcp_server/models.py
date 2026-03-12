@@ -132,6 +132,8 @@ class EconomicEvent(BaseModel):
     previous: Optional[str] = None   # Prior period value
     impact: str = "low"              # "high" | "medium" | "low"
     description: Optional[str] = None
+    impact_score: int = 1            # 1-10 market-impact score
+    affected_assets: list[str] = []  # e.g. ["USD", "US Equities", "Gold"]
 
 
 class EconomicCalendarResponse(BaseModel):

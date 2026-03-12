@@ -13,7 +13,10 @@
  *  - Click X or press Escape to close
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+} from "recharts";
 
 const MCP_BASE = import.meta.env.VITE_MCP_URL ?? "/mcp";
 
@@ -105,11 +108,112 @@ function ImpactDot({ impact, size = "md" }) {
   );
 }
 
+// Parse a string like "1.9%", "$1.23", "123K", "-0.5" into a float
+function parseVal(str) {
+  if (!str) return null;
+  const n = parseFloat(str.replace(/[^0-9.\-]/g, ""));
+  return isNaN(n) ? null : n;
+}
+
+// Score color: 1-3 green, 4-6 yellow, 7-8 orange, 9-10 red
+function scoreColor(s) {
+  if (s >= 9) return "text-red-400 bg-red-950 border-red-800";
+  if (s >= 7) return "text-orange-400 bg-orange-950 border-orange-800";
+  if (s >= 4) return "text-yellow-400 bg-yellow-950 border-yellow-800";
+  return "text-green-400 bg-green-950 border-green-800";
+}
+
+function AssetChip({ label }) {
+  const colors = {
+    "USD":           "text-blue-300 bg-blue-950/50 border-blue-800/50",
+    "US Equities":   "text-indigo-300 bg-indigo-950/50 border-indigo-800/50",
+    "Equities":      "text-indigo-300 bg-indigo-950/50 border-indigo-800/50",
+    "Bonds":         "text-purple-300 bg-purple-950/50 border-purple-800/50",
+    "Gold":          "text-yellow-300 bg-yellow-950/50 border-yellow-800/50",
+    "Oil":           "text-orange-300 bg-orange-950/50 border-orange-800/50",
+    "EUR/USD":       "text-cyan-300 bg-cyan-950/50 border-cyan-800/50",
+    "GBP/USD":       "text-teal-300 bg-teal-950/50 border-teal-800/50",
+    "USD/JPY":       "text-sky-300 bg-sky-950/50 border-sky-800/50",
+    "USD/CAD":       "text-sky-300 bg-sky-950/50 border-sky-800/50",
+    "AUD/USD":       "text-sky-300 bg-sky-950/50 border-sky-800/50",
+    "EU Equities":   "text-indigo-300 bg-indigo-950/50 border-indigo-800/50",
+    "JP Equities":   "text-rose-300 bg-rose-950/50 border-rose-800/50",
+    "UK Equities":   "text-violet-300 bg-violet-950/50 border-violet-800/50",
+    "Forex":         "text-cyan-300 bg-cyan-950/50 border-cyan-800/50",
+    "Natural Gas":   "text-orange-300 bg-orange-950/50 border-orange-800/50",
+    "Energy Equities": "text-amber-300 bg-amber-950/50 border-amber-800/50",
+  };
+  const cls = colors[label] || "text-gray-400 bg-white/5 border-white/10";
+  return (
+    <span className={`inline-block text-[9px] font-medium px-1.5 py-0.5 rounded border ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function BeatMissNote({ actual, forecast }) {
+  const a = parseVal(actual);
+  const f = parseVal(forecast);
+  if (a == null || f == null || f === 0) return null;
+  const diff = a - f;
+  const pct = Math.abs((diff / Math.abs(f)) * 100).toFixed(1);
+  if (Math.abs(diff) < 0.0001) return (
+    <p className="text-[10px] text-gray-500 mt-1.5">Matched forecast exactly.</p>
+  );
+  return (
+    <p className={`text-[10px] mt-1.5 font-medium ${diff > 0 ? "text-green-400" : "text-red-400"}`}>
+      Actual {diff > 0 ? "beat" : "missed"} forecast by {pct}%
+    </p>
+  );
+}
+
+function ForecastChart({ actual, forecast, previous }) {
+  const data = [
+    { name: "Prev",     value: parseVal(previous), fill: "#6b7280" },
+    { name: "Forecast", value: parseVal(forecast),  fill: "#3b82f6" },
+    { name: "Actual",   value: parseVal(actual),    fill: actual ? "#22c55e" : "#374151" },
+  ].filter(d => d.value != null);
+
+  if (data.length < 2) return null;
+
+  const allVals = data.map(d => d.value);
+  const min = Math.min(...allVals);
+  const max = Math.max(...allVals);
+  const pad = (max - min) * 0.3 || 0.5;
+  const domain = [min - pad, max + pad];
+
+  const CustomTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="bg-[#1a2233] border border-[#1f2937] rounded px-2 py-1 text-xs text-white">
+        {payload[0].payload.name}: {payload[0].value}
+      </div>
+    );
+  };
+
+  return (
+    <div className="mt-2 h-[70px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 2, right: 4, left: 4, bottom: 0 }} barCategoryGap="20%">
+          <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+          <YAxis domain={domain} hide />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+          <Bar dataKey="value" radius={[3, 3, 0, 0]}>
+            {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function EventCard({ event }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = IMPACT_CONFIG[event.impact] || IMPACT_CONFIG.low;
   const flag = COUNTRY_FLAGS[event.country] || "🌐";
   const isReleased = !!event.actual;
+  const score = event.impact_score ?? 1;
+  const assets = event.affected_assets ?? [];
 
   return (
     <div
@@ -122,11 +226,16 @@ function EventCard({ event }) {
         }`}
       onClick={() => setExpanded(v => !v)}
     >
-      {/* Top row: dot + time + flag */}
+      {/* Top row: dot + time + score badge + flag */}
       <div className="flex items-center gap-1.5 mb-1">
         <ImpactDot impact={event.impact} />
         <span className="text-[10px] text-gray-500 font-mono">{fmtTime(event.time_gmt)}</span>
-        <span className="text-[10px] ml-auto">{flag}</span>
+        {score >= 4 && (
+          <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ml-auto mr-1 ${scoreColor(score)}`}>
+            {score}/10
+          </span>
+        )}
+        <span className="text-[10px]">{flag}</span>
       </div>
 
       {/* Event name */}
@@ -153,11 +262,40 @@ function EventCard({ event }) {
         )}
       </div>
 
-      {/* Expandable description */}
-      {expanded && event.description && (
-        <p className="text-[10px] text-gray-500 mt-2 leading-relaxed border-t border-white/8 pt-2">
-          {event.description.slice(0, 300)}{event.description.length > 300 ? "…" : ""}
-        </p>
+      {/* Expanded detail panel */}
+      {expanded && (
+        <div className="mt-2.5 pt-2.5 border-t border-white/8 space-y-2">
+          {/* Impact score row */}
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-bold px-2 py-0.5 rounded border ${scoreColor(score)}`}>
+              {score}/10 Impact
+            </span>
+            {isReleased && <BeatMissNote actual={event.actual} forecast={event.forecast} />}
+          </div>
+
+          {/* Affected assets */}
+          {assets.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {assets.map(a => <AssetChip key={a} label={a} />)}
+            </div>
+          )}
+
+          {/* Forecast vs Actual bar chart */}
+          {(event.previous || event.forecast || event.actual) && (
+            <ForecastChart
+              actual={event.actual}
+              forecast={event.forecast}
+              previous={event.previous}
+            />
+          )}
+
+          {/* Description */}
+          {event.description && (
+            <p className="text-[10px] text-gray-500 leading-relaxed">
+              {event.description.slice(0, 350)}{event.description.length > 350 ? "…" : ""}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -211,6 +349,43 @@ export default function EconomicCalendar({ onClose }) {
   const [earningsEvents, setEarningsEvents] = useState([]);
   const [earningsLoading, setEarningsLoading] = useState(false);
   const [earningsError, setEarningsError] = useState(null);
+
+  // Countdown to next high-impact event
+  const [countdown, setCountdown] = useState(null); // { label, timeStr } | null
+  const countdownRef = useRef(null);
+
+  useEffect(() => {
+    function computeCountdown() {
+      const todayStr = isoDate(new Date());
+      const nowUtc = new Date();
+      // Find next high-impact event today (or any day this week) without actual data yet
+      const upcoming = events
+        .filter(e => e.impact === "high" && !e.actual && e.time_gmt && e.date >= todayStr)
+        .map(e => {
+          const [h, m] = e.time_gmt.split(":").map(Number);
+          const eventTime = new Date(e.date + "T00:00:00Z");
+          eventTime.setUTCHours(h, m, 0, 0);
+          return { ...e, _ts: eventTime.getTime() };
+        })
+        .filter(e => e._ts > nowUtc.getTime())
+        .sort((a, b) => a._ts - b._ts);
+
+      if (upcoming.length === 0) { setCountdown(null); return; }
+      const next = upcoming[0];
+      const diffMs = next._ts - nowUtc.getTime();
+      const totalMins = Math.floor(diffMs / 60000);
+      const h = Math.floor(totalMins / 60);
+      const m = totalMins % 60;
+      const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+      // Shorten the event label
+      const label = next.event.length > 28 ? next.event.slice(0, 28) + "…" : next.event;
+      setCountdown({ label, timeStr, country: next.country });
+    }
+
+    computeCountdown();
+    countdownRef.current = setInterval(computeCountdown, 60000);
+    return () => clearInterval(countdownRef.current);
+  }, [events]);
 
   // Close on Escape
   useEffect(() => {
@@ -342,8 +517,18 @@ export default function EconomicCalendar({ onClose }) {
             </button>
           </div>
 
-          {/* Stats + close */}
+          {/* Countdown + stats + close */}
           <div className="flex items-center gap-3">
+            {/* Next high-impact event countdown */}
+            {calendarMode === "macro" && countdown && (
+              <div className="flex items-center gap-1.5 bg-red-950/30 border border-red-800/40 rounded-lg px-2.5 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                <span className="text-[10px] text-red-300 font-medium whitespace-nowrap">
+                  Next: <span className="text-red-200">{countdown.label}</span>
+                  <span className="text-red-400 ml-1">in {countdown.timeStr}</span>
+                </span>
+              </div>
+            )}
             {!loading && (
               <span className="text-xs text-gray-500">
                 {filtered.length} events
@@ -512,7 +697,6 @@ export default function EconomicCalendar({ onClose }) {
               );
             })}
           </div>
-        )}
         )}
       </div>
 
