@@ -1109,3 +1109,173 @@ async def fetch_insider_trades(cik: str) -> list[dict]:
     merged = [t for batch in all_results for t in batch]
     merged.sort(key=lambda x: x["date"], reverse=True)
     return merged[:20]
+
+
+# ---------------------------------------------------------------------------
+# Market Overview — Major Indices via yfinance
+# ---------------------------------------------------------------------------
+
+async def fetch_market_overview() -> list[dict]:
+    """
+    Fetch live quotes for major market indices and commodities via yfinance.
+    Returns price, change, and change_pct for each instrument.
+    Free — no API key required.
+    """
+    import yfinance as yf
+    from concurrent.futures import ThreadPoolExecutor
+
+    instruments = [
+        ("^GSPC",  "S&P 500"),
+        ("^IXIC",  "NASDAQ"),
+        ("^DJI",   "DOW"),
+        ("^VIX",   "VIX"),
+        ("GC=F",   "Gold"),
+        ("CL=F",   "Oil"),
+    ]
+
+    def _fetch_all() -> list[dict]:
+        results = []
+        for symbol, name in instruments:
+            try:
+                t = yf.Ticker(symbol)
+                fi = t.fast_info
+                price = fi.last_price
+                prev  = fi.previous_close
+                if price is None:
+                    continue
+                chg     = price - prev if prev else 0.0
+                chg_pct = (chg / prev * 100) if prev else 0.0
+                results.append({
+                    "symbol":     symbol,
+                    "name":       name,
+                    "price":      round(price, 2),
+                    "change":     round(chg, 2),
+                    "change_pct": round(chg_pct, 2),
+                })
+            except Exception:
+                pass
+        return results
+
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        return await loop.run_in_executor(ex, _fetch_all)
+
+
+# ---------------------------------------------------------------------------
+# Fear & Greed Index — CNN (free, no key)
+# ---------------------------------------------------------------------------
+
+async def fetch_fear_greed() -> dict:
+    """
+    Fetch CNN's Fear & Greed Index.
+    The endpoint is publicly accessible — no API key required.
+    """
+    url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://www.cnn.com/markets/fear-and-greed",
+        "Accept":  "application/json",
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(url, headers=headers)
+        r.raise_for_status()
+        fg = r.json().get("fear_and_greed", {})
+        return {
+            "score":            round(fg.get("score", 0)),
+            "rating":           fg.get("rating", "neutral").replace("_", " ").title(),
+            "previous_close":   round(fg.get("previous_close",   0)),
+            "previous_1_week":  round(fg.get("previous_1_week",  0)),
+            "previous_1_month": round(fg.get("previous_1_month", 0)),
+            "previous_1_year":  round(fg.get("previous_1_year",  0)),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Congressional Trading — House & Senate Stock Watcher (free, no key)
+# ---------------------------------------------------------------------------
+
+# Simple in-memory cache so we don't re-download the ~10 MB files on every request.
+_congress_cache: dict[str, tuple[float, list]] = {}
+_CONGRESS_TTL = 3600.0  # 1 hour
+
+
+async def fetch_congressional_trades(ticker: str) -> list[dict]:
+    """
+    Fetch recent congressional stock disclosures for a specific ticker.
+
+    Data comes from the community-maintained House & Senate Stock Watcher S3 buckets:
+      - https://house-stock-watcher-data.s3-us-east-2.amazonaws.com/
+      - https://senate-stock-watcher-data.s3-us-east-2.amazonaws.com/
+
+    Completely free, no API key required.
+    Results are cached in memory for 1 hour to avoid re-downloading the large files.
+    """
+    import time
+
+    ticker_upper = ticker.upper()
+    now = time.monotonic()
+
+    sources = [
+        (
+            "House",
+            "https://house-stock-watcher-data.s3-us-east-2.amazonaws.com/data/all_transactions.json",
+        ),
+        (
+            "Senate",
+            "https://senate-stock-watcher-data.s3-us-east-2.amazonaws.com/aggregate/all_transactions.json",
+        ),
+    ]
+
+    results: list[dict] = []
+
+    async with httpx.AsyncClient(timeout=25.0) as client:
+        for chamber, url in sources:
+            # Use cache if fresh
+            cached = _congress_cache.get(chamber)
+            if cached and (now - cached[0]) < _CONGRESS_TTL:
+                raw_data = cached[1]
+            else:
+                try:
+                    r = await client.get(
+                        url,
+                        headers={"User-Agent": "SEC-Insight-Agent/1.0 contact@example.com"},
+                    )
+                    if r.status_code != 200:
+                        continue
+                    raw_data = r.json()
+                    _congress_cache[chamber] = (now, raw_data)
+                except Exception:
+                    continue
+
+            for trade in raw_data:
+                t = (trade.get("ticker") or "").upper().strip()
+                if t != ticker_upper:
+                    continue
+                member = (
+                    trade.get("representative")
+                    or trade.get("senator")
+                    or "Unknown"
+                ).strip()
+                results.append({
+                    "chamber":          chamber,
+                    "member":           member,
+                    "party":            (trade.get("party") or "").strip(),
+                    "transaction_date": (
+                        trade.get("transaction_date")
+                        or trade.get("transaction_date_raw")
+                        or ""
+                    ).strip(),
+                    "type": (trade.get("type") or "").strip(),
+                    "amount": (trade.get("amount") or "").strip(),
+                    "asset_description": (
+                        trade.get("asset_description")
+                        or trade.get("asset_name")
+                        or ""
+                    ).strip(),
+                })
+
+    results.sort(key=lambda x: x.get("transaction_date") or "", reverse=True)
+    return results[:40]

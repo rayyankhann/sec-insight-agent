@@ -21,6 +21,8 @@ import ChatWindow from './components/ChatWindow'
 import SearchBar from './components/SearchBar'
 import CompanyDashboard from './components/CompanyDashboard'
 import EconomicCalendar from './components/EconomicCalendar'
+import MarketBar from './components/MarketBar'
+import Watchlist from './components/Watchlist'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -79,6 +81,9 @@ function App() {
 
   // Economic calendar overlay
   const [calendarOpen, setCalendarOpen] = useState(false)
+
+  // Watchlist panel
+  const [watchlistOpen, setWatchlistOpen] = useState(false)
 
   const handleSend = useCallback(async (userMessage) => {
     const updatedMessages = [
@@ -190,6 +195,23 @@ function App() {
                 </svg>
               </button>
             )}
+            {/* Watchlist toggle */}
+            <button
+              onClick={() => { setWatchlistOpen(v => !v); if (dashboardOpen) setDashboardOpen(false) }}
+              title="Watchlist"
+              className={`flex items-center gap-2 text-xs rounded-full px-3 py-1.5 border transition-colors ${
+                watchlistOpen
+                  ? 'text-amber-300 bg-amber-950 border-amber-700'
+                  : 'text-gray-400 bg-[#1a2233] border-[#1f2937] hover:text-amber-300 hover:border-amber-700'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+              </svg>
+              <span className="hidden sm:inline">Watchlist</span>
+            </button>
+
             {/* Economic Calendar toggle */}
             <button
               onClick={() => setCalendarOpen(v => !v)}
@@ -215,11 +237,14 @@ function App() {
         </div>
       </header>
 
-      {/* ─── Main Body (two-column when dashboard is open) ───────────────── */}
+      {/* ─── Market Bar ──────────────────────────────────────────────────── */}
+      <MarketBar />
+
+      {/* ─── Main Body (two-column when dashboard/watchlist is open) ─────── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* Left: Chat panel */}
-        <div className={`flex flex-col flex-1 min-w-0 transition-all duration-300 ${hasDashboard ? 'border-r border-[#1f2937]' : ''}`}>
+        <div className={`flex flex-col flex-1 min-w-0 transition-all duration-300 ${(hasDashboard || watchlistOpen) ? 'border-r border-[#1f2937]' : ''}`}>
           <ChatWindow
             messages={messages}
             isLoading={isLoading}
@@ -229,7 +254,7 @@ function App() {
         </div>
 
         {/* Right: Company Dashboard — slides in when a company is identified */}
-        {hasDashboard && (
+        {hasDashboard && !watchlistOpen && (
           <div className="w-80 flex-shrink-0 flex flex-col">
             <CompanyDashboard
               companyName={activeCompany.name}
@@ -238,6 +263,13 @@ function App() {
               onClose={() => setDashboardOpen(false)}
               onSummarize={handleSend}
             />
+          </div>
+        )}
+
+        {/* Right: Watchlist panel */}
+        {watchlistOpen && (
+          <div className="w-72 flex-shrink-0 flex flex-col">
+            <Watchlist onClose={() => setWatchlistOpen(false)} />
           </div>
         )}
       </div>

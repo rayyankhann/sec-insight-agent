@@ -172,6 +172,47 @@ class InsiderTradesResponse(BaseModel):
     trades: list[InsiderTrade] = []
 
 
+class MarketIndex(BaseModel):
+    """A single market index or instrument quote."""
+    symbol: str
+    name: str
+    price: Optional[float] = None
+    change: Optional[float] = None
+    change_pct: Optional[float] = None
+
+
+class MarketOverviewResponse(BaseModel):
+    """Live quotes for major market indices — returned by GET /market/overview."""
+    indices: list[MarketIndex] = []
+
+
+class FearGreedResponse(BaseModel):
+    """CNN Fear & Greed Index — returned by GET /market/fear-greed."""
+    score: int
+    rating: str
+    previous_close: int
+    previous_1_week: int
+    previous_1_month: int
+    previous_1_year: int
+
+
+class CongressionalTrade(BaseModel):
+    """A single congressional stock disclosure."""
+    chamber: str                       # "House" or "Senate"
+    member: str                        # Representative or Senator name
+    party: str = ""                    # "D", "R", "I"
+    transaction_date: str              # ISO date
+    type: str                          # "purchase", "sale", "sale (partial)", etc.
+    amount: str = ""                   # Range string e.g. "$1,001 - $15,000"
+    asset_description: str = ""
+
+
+class CongressionalTradesResponse(BaseModel):
+    """Recent congressional trades for a ticker — returned by GET /stock/{ticker}/congress."""
+    ticker: str
+    trades: list[CongressionalTrade] = []
+
+
 class HealthResponse(BaseModel):
     """Simple health check response — returned by GET /health."""
     status: str

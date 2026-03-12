@@ -13,12 +13,14 @@ import MetricsPanel from './MetricsPanel'
 import FilingTimeline from './FilingTimeline'
 import NewsCard from './NewsCard'
 import InsiderTrading from './InsiderTrading'
+import CongressionalTrading from './CongressionalTrading'
 
 const TABS = [
   { id: 'metrics',   label: 'Financials' },
   { id: 'timeline',  label: 'Filings'    },
   { id: 'news',      label: 'News'       },
   { id: 'insiders',  label: 'Insiders'   },
+  { id: 'congress',  label: 'Congress'   },
 ]
 
 function CompanyDashboard({ companyName, ticker, cik, onClose, onSummarize }) {
@@ -112,12 +114,24 @@ function CompanyDashboard({ companyName, ticker, cik, onClose, onSummarize }) {
             <InsiderTrading cik={cik} />
           </div>
         )}
+
+        {activeTab === 'congress' && (
+          <div>
+            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-medium">
+              Congressional Trades · STOCK Act Disclosures
+            </p>
+            {ticker
+              ? <CongressionalTrading ticker={ticker} />
+              : <p className="text-gray-600 text-xs text-center py-6">No ticker available.</p>
+            }
+          </div>
+        )}
       </div>
 
       {/* ─── Footer ───────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 border-t border-[#1f2937] px-4 py-2">
         <p className="text-xs text-gray-600 text-center">
-          Data: SEC EDGAR · Yahoo Finance · Updated live
+          Data: SEC EDGAR · Yahoo Finance · Congress · Updated live
         </p>
       </div>
     </div>

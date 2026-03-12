@@ -27,6 +27,9 @@ from edgar_client import (
     fetch_company_news,
     fetch_insider_trades,
     fetch_economic_calendar,
+    fetch_market_overview,
+    fetch_fear_greed,
+    fetch_congressional_trades,
 )
 from models import (
     CompanySearchResult,
@@ -43,6 +46,11 @@ from models import (
     NewsResponse,
     InsiderTrade,
     InsiderTradesResponse,
+    MarketIndex,
+    MarketOverviewResponse,
+    FearGreedResponse,
+    CongressionalTrade,
+    CongressionalTradesResponse,
     HealthResponse,
     ErrorResponse,
 )
@@ -419,6 +427,67 @@ async def get_economic_calendar(
 
     events = [EconomicEvent(**e) for e in events_raw]
     return EconomicCalendarResponse(week_start=date_from, week_end=date_to, events=events)
+
+
+@app.get(
+    "/market/overview",
+    response_model=MarketOverviewResponse,
+    responses={502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_market_overview() -> MarketOverviewResponse:
+    """
+    Fetch live quotes for major indices: S&P 500, NASDAQ, DOW, VIX, Gold, Oil.
+    Uses yfinance — free, no API key required.
+    Polled by the frontend MarketBar every 60 seconds.
+    """
+    try:
+        raw = await fetch_market_overview()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching market overview: {str(e)}")
+    indices = [MarketIndex(**item) for item in raw]
+    return MarketOverviewResponse(indices=indices)
+
+
+@app.get(
+    "/market/fear-greed",
+    response_model=FearGreedResponse,
+    responses={502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_fear_greed() -> FearGreedResponse:
+    """
+    Fetch CNN's Fear & Greed Index score (0–100).
+    Free public endpoint — no API key required.
+    """
+    try:
+        data = await fetch_fear_greed()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching Fear & Greed: {str(e)}")
+    return FearGreedResponse(**data)
+
+
+@app.get(
+    "/stock/{ticker}/congress",
+    response_model=CongressionalTradesResponse,
+    responses={502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_congressional_trades(ticker: str) -> CongressionalTradesResponse:
+    """
+    Fetch recent congressional stock disclosures for a ticker (House + Senate).
+
+    Data from the community House/Senate Stock Watcher S3 buckets — free, no key.
+    Results are cached server-side for 1 hour to avoid re-downloading the large files.
+
+    Example: GET /stock/NVDA/congress
+    """
+    try:
+        raw = await fetch_congressional_trades(ticker)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching congressional trades: {str(e)}")
+    trades = [CongressionalTrade(**t) for t in raw]
+    return CongressionalTradesResponse(ticker=ticker.upper(), trades=trades)
 
 
 @app.post(
