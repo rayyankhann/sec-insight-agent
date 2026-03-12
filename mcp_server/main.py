@@ -491,6 +491,7 @@ async def get_options_flow(ticker: str) -> OptionsFlowResponse:
         put_call_ratio=data.get("put_call_ratio"),
         total_call_oi=data.get("total_call_oi", 0),
         total_put_oi=data.get("total_put_oi", 0),
+        oi_is_volume=data.get("oi_is_volume", False),
         calls=calls,
         puts=puts,
     )

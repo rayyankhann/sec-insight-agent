@@ -1370,16 +1370,44 @@ async def fetch_options_flow(ticker: str) -> dict:
     from concurrent.futures import ThreadPoolExecutor
 
     def _fetch() -> dict:
+        from datetime import date as dt_date, timedelta
+
         t = yf.Ticker(ticker.upper())
         expirations = t.options
         if not expirations:
             return {"ticker": ticker.upper(), "expirations": [], "calls": [], "puts": []}
 
-        # Use up to the 4 nearest expirations
-        use_exps = list(expirations[:4])
+        # Get current spot price to filter strikes near the money
+        fi = t.fast_info
+        spot = getattr(fi, "last_price", None) or 0
 
-        all_calls = []
-        all_puts  = []
+        # Skip same-day / next-day expirations; prefer expirations ≥ 5 days out
+        # and pick up to 4, covering at least the next monthly cycle
+        today = dt_date.today()
+        min_date = today + timedelta(days=4)
+        candidates = [
+            e for e in expirations
+            if dt_date.fromisoformat(e) >= min_date
+        ]
+        # Fall back to closest available if nothing qualifies
+        use_exps = list((candidates or list(expirations))[:4])
+
+        all_calls: list[dict] = []
+        all_puts:  list[dict] = []
+
+        def _row(row, side: str, exp_str: str) -> dict:
+            return {
+                "type": side,
+                "strike": float(row.get("strike", 0)),
+                "expiration": exp_str,
+                "last_price": _safe_float(row.get("lastPrice")),
+                "bid": _safe_float(row.get("bid")),
+                "ask": _safe_float(row.get("ask")),
+                "volume": _safe_int(row.get("volume")),
+                "open_interest": _safe_int(row.get("openInterest")),
+                "implied_volatility": round(float(row.get("impliedVolatility", 0) or 0), 4),
+                "in_the_money": bool(row.get("inTheMoney", False)),
+            }
 
         for exp in use_exps:
             try:
@@ -1389,44 +1417,49 @@ async def fetch_options_flow(ticker: str) -> dict:
             except Exception:
                 continue
 
-            fi = t.fast_info
-            spot = getattr(fi, "last_price", None) or 0
-
-            def _row(row, side: str, exp_str: str) -> dict:
-                return {
-                    "type": side,
-                    "strike": float(row.get("strike", 0)),
-                    "expiration": exp_str,
-                    "last_price": _safe_float(row.get("lastPrice")),
-                    "bid": _safe_float(row.get("bid")),
-                    "ask": _safe_float(row.get("ask")),
-                    "volume": _safe_int(row.get("volume")),
-                    "open_interest": _safe_int(row.get("openInterest")),
-                    "implied_volatility": round(float(row.get("impliedVolatility", 0) or 0), 4),
-                    "in_the_money": bool(row.get("inTheMoney", False)),
-                }
+            # Filter to strikes within ±40% of spot (removes deep OTM/ITM junk)
+            if spot > 0:
+                lo, hi = spot * 0.60, spot * 1.40
+                calls_df = calls_df[calls_df["strike"].between(lo, hi)]
+                puts_df  = puts_df[puts_df["strike"].between(lo, hi)]
 
             for _, row in calls_df.iterrows():
                 all_calls.append(_row(row, "call", exp))
             for _, row in puts_df.iterrows():
                 all_puts.append(_row(row, "put", exp))
 
-        # Sort by open interest descending, take top 20 each
-        all_calls.sort(key=lambda x: x.get("open_interest") or 0, reverse=True)
-        all_puts.sort(key=lambda x: x.get("open_interest") or 0, reverse=True)
+        # Sort by OI first, fall back to volume for contracts with 0 OI
+        def _score(c):
+            oi  = c.get("open_interest") or 0
+            vol = c.get("volume") or 0
+            return oi + vol  # combine so active contracts surface first
 
-        total_call_oi = sum((c.get("open_interest") or 0) for c in all_calls)
-        total_put_oi  = sum((p.get("open_interest") or 0) for p in all_puts)
+        all_calls.sort(key=_score, reverse=True)
+        all_puts.sort(key=_score, reverse=True)
+
+        # Drop contracts with neither OI nor volume
+        all_calls = [c for c in all_calls if _score(c) > 0]
+        all_puts  = [p for p in all_puts  if _score(p) > 0]
+
+        total_call_oi  = sum((c.get("open_interest") or 0) for c in all_calls)
+        total_put_oi   = sum((p.get("open_interest") or 0) for p in all_puts)
         total_call_vol = sum((c.get("volume") or 0) for c in all_calls)
         total_put_vol  = sum((p.get("volume") or 0) for p in all_puts)
         pcr = round(total_put_vol / total_call_vol, 2) if total_call_vol else None
+
+        # OI data is only updated overnight — during market hours it reads as 0.
+        # Fall back to volume totals so the bar is meaningful in real time.
+        oi_unavailable = total_call_oi == 0 and total_put_oi == 0
+        display_call = total_call_vol if oi_unavailable else total_call_oi
+        display_put  = total_put_vol  if oi_unavailable else total_put_oi
 
         return {
             "ticker": ticker.upper(),
             "expirations": use_exps,
             "put_call_ratio": pcr,
-            "total_call_oi": total_call_oi,
-            "total_put_oi": total_put_oi,
+            "total_call_oi": display_call,
+            "total_put_oi": display_put,
+            "oi_is_volume": oi_unavailable,   # tells frontend to label as "Vol" not "OI"
             "calls": all_calls[:20],
             "puts": all_puts[:20],
         }

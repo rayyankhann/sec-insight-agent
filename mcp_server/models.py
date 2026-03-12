@@ -209,6 +209,7 @@ class OptionsFlowResponse(BaseModel):
     put_call_ratio: Optional[float] = None
     total_call_oi: int = 0
     total_put_oi: int = 0
+    oi_is_volume: bool = False   # True when OI data unavailable, showing volume instead
     calls: list[OptionsContract] = []
     puts: list[OptionsContract] = []
 

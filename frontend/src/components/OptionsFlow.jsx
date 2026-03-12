@@ -21,10 +21,13 @@ function fmtPct(n) {
   return `${(n * 100).toFixed(0)}%`
 }
 
-function ContractRow({ c, spot }) {
+function ContractRow({ c, metricLabel }) {
   const isCall = c.type === 'call'
   const oi = c.open_interest ?? 0
-  const iv = c.implied_volatility != null ? `${(c.implied_volatility * 100).toFixed(1)}%` : '—'
+  const vol = c.volume ?? 0
+  const displayVal = (oi > 0) ? oi : vol  // show whichever is available
+  const iv = c.implied_volatility != null && c.implied_volatility > 0
+    ? `${(c.implied_volatility * 100).toFixed(1)}%` : '—'
   const itm = c.in_the_money
 
   return (
@@ -36,7 +39,7 @@ function ContractRow({ c, spot }) {
       <div className="w-16 text-gray-300 font-mono font-semibold">${c.strike}</div>
       <div className="flex-1 text-gray-500 text-[10px] truncate">{c.expiration}</div>
       <div className="w-10 text-right text-gray-400 font-mono">{iv}</div>
-      <div className="w-12 text-right text-gray-300 font-mono">{fmt(oi)}</div>
+      <div className="w-12 text-right text-gray-300 font-mono">{fmt(displayVal)}</div>
       {itm && (
         <span className={`text-[9px] font-bold px-1 rounded ${
           isCall ? 'bg-green-900/60 text-green-400' : 'bg-red-900/60 text-red-400'
@@ -77,6 +80,8 @@ export default function OptionsFlow({ ticker }) {
   if (!data)  return null
 
   const pcr = data.put_call_ratio
+  const oiIsVol = data.oi_is_volume  // OI not yet published; showing volume instead
+  const metricLabel = oiIsVol ? 'Vol' : 'OI'
   const callOI = data.total_call_oi
   const putOI  = data.total_put_oi
   const totalOI = callOI + putOI
@@ -104,12 +109,12 @@ export default function OptionsFlow({ ticker }) {
           </p>
         </div>
         <div className="bg-[#111827] border border-[#1f2937] rounded-lg p-2.5 text-center">
-          <p className="text-[10px] text-gray-600 mb-1">Call OI</p>
+          <p className="text-[10px] text-gray-600 mb-1">Call {metricLabel}</p>
           <p className="text-base font-bold font-mono text-green-400">{fmt(callOI)}</p>
           <p className="text-[9px] text-green-800">{callPct}%</p>
         </div>
         <div className="bg-[#111827] border border-[#1f2937] rounded-lg p-2.5 text-center">
-          <p className="text-[10px] text-gray-600 mb-1">Put OI</p>
+          <p className="text-[10px] text-gray-600 mb-1">Put {metricLabel}</p>
           <p className="text-base font-bold font-mono text-red-400">{fmt(putOI)}</p>
           <p className="text-[9px] text-red-900">{putPct}%</p>
         </div>
@@ -150,7 +155,7 @@ export default function OptionsFlow({ ticker }) {
         <div className="w-16">Strike</div>
         <div className="flex-1">Expiry</div>
         <div className="w-10 text-right">IV</div>
-        <div className="w-12 text-right">OI</div>
+        <div className="w-12 text-right">{metricLabel}</div>
         <div className="w-8" />
       </div>
 
@@ -158,12 +163,15 @@ export default function OptionsFlow({ ticker }) {
       <div className="space-y-1 max-h-72 overflow-y-auto pr-0.5">
         {contracts.length === 0
           ? <p className="text-xs text-gray-600 text-center py-4">No contracts found.</p>
-          : contracts.map((c, i) => <ContractRow key={i} c={c} />)
+          : contracts.map((c, i) => <ContractRow key={i} c={c} metricLabel={metricLabel} />)
         }
       </div>
 
       <p className="text-[10px] text-gray-700 text-center pt-1">
-        Top by Open Interest · Source: Yahoo Finance
+        {oiIsVol
+          ? 'Showing today\'s Volume (OI updates after market close) · Yahoo Finance'
+          : 'Top by Open Interest · Source: Yahoo Finance'
+        }
       </p>
     </div>
   )
