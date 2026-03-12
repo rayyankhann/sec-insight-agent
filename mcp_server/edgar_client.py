@@ -1125,12 +1125,18 @@ async def fetch_market_overview() -> list[dict]:
     from concurrent.futures import ThreadPoolExecutor
 
     instruments = [
-        ("^GSPC",  "S&P 500"),
-        ("^IXIC",  "NASDAQ"),
-        ("^DJI",   "DOW"),
-        ("^VIX",   "VIX"),
-        ("GC=F",   "Gold"),
-        ("CL=F",   "Oil"),
+        ("^GSPC",    "S&P 500"),
+        ("^IXIC",    "NASDAQ"),
+        ("^DJI",     "DOW"),
+        ("^RUT",     "Russell 2000"),
+        ("^VIX",     "VIX"),
+        ("^TNX",     "10Y Yield"),
+        ("GC=F",     "Gold"),
+        ("CL=F",     "Oil"),
+        ("BTC-USD",  "Bitcoin"),
+        ("ETH-USD",  "Ethereum"),
+        ("EURUSD=X", "EUR/USD"),
+        ("JPY=X",    "USD/JPY"),
     ]
 
     def _fetch_all() -> list[dict]:
