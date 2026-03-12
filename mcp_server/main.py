@@ -26,6 +26,7 @@ from edgar_client import (
     fetch_filing_timeline,
     fetch_company_news,
     fetch_insider_trades,
+    fetch_economic_calendar,
 )
 from models import (
     CompanySearchResult,
@@ -36,6 +37,8 @@ from models import (
     FinancialsResponse,
     FilingTimelineResponse,
     FilingTimelineItem,
+    EconomicEvent,
+    EconomicCalendarResponse,
     NewsItem,
     NewsResponse,
     InsiderTrade,
@@ -389,6 +392,33 @@ async def get_insider_trades(cik: str) -> InsiderTradesResponse:
 
     trades = [InsiderTrade(**t) for t in trades_raw]
     return InsiderTradesResponse(cik=cik, trades=trades)
+
+
+@app.get(
+    "/calendar/economic",
+    response_model=EconomicCalendarResponse,
+    responses={502: {"model": ErrorResponse}},
+    tags=["Calendar"],
+)
+async def get_economic_calendar(
+    date_from: str = Query(description="Start date YYYY-MM-DD"),
+    date_to: str   = Query(description="End date YYYY-MM-DD"),
+) -> EconomicCalendarResponse:
+    """
+    Fetch economic calendar events for a given date range.
+
+    Data comes from Nasdaq's public economic events API — free, no key required.
+    Impact level (high/medium/low) is derived from a curated keyword map.
+
+    Example: GET /calendar/economic?date_from=2026-03-10&date_to=2026-03-14
+    """
+    try:
+        events_raw = await fetch_economic_calendar(date_from=date_from, date_to=date_to)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching economic calendar: {str(e)}")
+
+    events = [EconomicEvent(**e) for e in events_raw]
+    return EconomicCalendarResponse(week_start=date_from, week_end=date_to, events=events)
 
 
 @app.post(

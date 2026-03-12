@@ -824,6 +824,135 @@ async def fetch_filing_timeline(cik: str, limit_per_type: int = 8) -> list[dict]
     return timeline
 
 
+# ─── Economic Calendar ────────────────────────────────────────────────────────
+
+# Keywords that classify an event as high or medium impact.
+# Checked case-insensitively against the event name.
+_HIGH_IMPACT_KEYWORDS = [
+    "interest rate decision", "monetary policy statement", "rate decision",
+    "nonfarm payroll", "non-farm payroll", "nfp",
+    "consumer price index", " cpi",
+    " gdp ", "gdp ", "gross domestic product", "gdp annualized", "gdp growth",
+    "unemployment rate",
+    "pce price", "core pce", "personal consumption expenditure",
+    "fomc", "federal open market",
+    "fed rate", "fed chair", "powell speaks",
+    "ecb rate", "ecb interest", "ecb press", "ecb monetary",
+    "boe rate", "bank of england", "mpc rate",
+    "boj rate", "bank of japan", "boj policy",
+    "rba rate", "bank of canada", "boc rate",
+    "central bank rate",
+]
+
+_MEDIUM_IMPACT_KEYWORDS = [
+    "producer price", " ppi",
+    "purchasing managers", " pmi",
+    " ism ", "ism manufacturing", "ism services",
+    "consumer confidence", "consumer sentiment",
+    "jobless claims", "initial claims", "unemployment claims",
+    "housing starts", "building permits", "existing home sales", "new home sales",
+    "durable goods",
+    "trade balance",
+    "industrial production",
+    "retail sales",
+    "average hourly earnings", "average cash earnings", "average weekly earnings",
+    "core inflation", "inflation rate",
+    "employment change", "employment situation",
+    "manufacturing output", "manufacturing pmi",
+    "services pmi", "composite pmi",
+    "import price", "export price",
+    "business confidence", "business climate",
+    "leading indicator", "leading index",
+]
+
+
+def _classify_impact(event_name: str) -> str:
+    """Return 'high', 'medium', or 'low' based on the event name."""
+    name_lower = f" {event_name.lower()} "
+    for kw in _HIGH_IMPACT_KEYWORDS:
+        if kw in name_lower:
+            return "high"
+    for kw in _MEDIUM_IMPACT_KEYWORDS:
+        if kw in name_lower:
+            return "medium"
+    return "low"
+
+
+async def fetch_economic_calendar(date_from: str, date_to: str) -> list[dict]:
+    """
+    Fetch economic calendar events for a date range from Nasdaq's public API.
+
+    Nasdaq's economic events endpoint is completely free and requires no API key.
+    We make one request per calendar day (in parallel) and merge results.
+
+    Args:
+        date_from: ISO date string "YYYY-MM-DD" (inclusive)
+        date_to:   ISO date string "YYYY-MM-DD" (inclusive)
+
+    Returns:
+        List of event dicts sorted by date + time, each with:
+        date, time_gmt, country, event, actual, forecast, previous, impact, description
+    """
+    from datetime import date as dt_date, timedelta
+
+    nasdaq_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.nasdaq.com/",
+    }
+
+    # Build list of dates in range
+    start = dt_date.fromisoformat(date_from)
+    end = dt_date.fromisoformat(date_to)
+    dates = []
+    current = start
+    while current <= end:
+        # Skip weekends (Nasdaq only has weekday data)
+        if current.weekday() < 5:
+            dates.append(current.isoformat())
+        current += timedelta(days=1)
+
+    async def fetch_day(date_str: str) -> list[dict]:
+        url = f"https://api.nasdaq.com/api/calendar/economicevents?date={date_str}"
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                r = await client.get(url, headers=nasdaq_headers)
+                if r.status_code != 200:
+                    return []
+                data = r.json()
+                rows = data.get("data", {}).get("rows") or []
+                events = []
+                for row in rows:
+                    name = (row.get("eventName") or "").strip()
+                    if not name or name == "&nbsp;":
+                        continue
+                    actual_raw = (row.get("actual") or "").replace("&nbsp;", "").strip()
+                    events.append({
+                        "date": date_str,
+                        "time_gmt": (row.get("gmt") or "").strip(),
+                        "country": (row.get("country") or "").strip(),
+                        "event": name,
+                        "actual":   actual_raw or None,
+                        "forecast": (row.get("consensus") or "").replace("&nbsp;", "").strip() or None,
+                        "previous": (row.get("previous") or "").replace("&nbsp;", "").strip() or None,
+                        "impact":   _classify_impact(name),
+                        "description": (row.get("description") or "").replace("&lt;BR/&gt;", " ").strip() or None,
+                    })
+                return events
+        except Exception:
+            return []
+
+    day_results = await asyncio.gather(*[fetch_day(d) for d in dates])
+    all_events = [e for day in day_results for e in day]
+
+    # Sort by date then GMT time
+    all_events.sort(key=lambda x: (x["date"], x["time_gmt"] or "99:99"))
+    return all_events
+
+
 # ─── Company News ──────────────────────────────────────────────────────────────
 
 async def fetch_company_news(ticker: str) -> list[dict]:

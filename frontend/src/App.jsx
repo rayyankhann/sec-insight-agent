@@ -20,6 +20,7 @@ import React, { useState, useCallback } from 'react'
 import ChatWindow from './components/ChatWindow'
 import SearchBar from './components/SearchBar'
 import CompanyDashboard from './components/CompanyDashboard'
+import EconomicCalendar from './components/EconomicCalendar'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -75,6 +76,9 @@ function App() {
 
   // Controls whether the right-panel is visible (independent of activeCompany)
   const [dashboardOpen, setDashboardOpen] = useState(false)
+
+  // Economic calendar overlay
+  const [calendarOpen, setCalendarOpen] = useState(false)
 
   const handleSend = useCallback(async (userMessage) => {
     const updatedMessages = [
@@ -186,6 +190,23 @@ function App() {
                 </svg>
               </button>
             )}
+            {/* Economic Calendar toggle */}
+            <button
+              onClick={() => setCalendarOpen(v => !v)}
+              title="Economic Calendar"
+              className={`flex items-center gap-2 text-xs rounded-full px-3 py-1.5 border transition-colors ${
+                calendarOpen
+                  ? 'text-indigo-300 bg-indigo-950 border-indigo-700'
+                  : 'text-gray-400 bg-[#1a2233] border-[#1f2937] hover:text-indigo-300 hover:border-indigo-700'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="hidden sm:inline">Calendar</span>
+            </button>
+
             <div className="flex items-center gap-2 text-xs text-gray-400 bg-[#1a2233] border border-[#1f2937] rounded-full px-3 py-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
               SEC EDGAR Live
@@ -220,6 +241,11 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* ─── Economic Calendar overlay ───────────────────────────────────── */}
+      {calendarOpen && (
+        <EconomicCalendar onClose={() => setCalendarOpen(false)} />
+      )}
     </div>
   )
 }

@@ -121,6 +121,26 @@ class FilingTimelineResponse(BaseModel):
     filings: list[FilingTimelineItem]
 
 
+class EconomicEvent(BaseModel):
+    """A single economic calendar event."""
+    date: str                        # ISO date, e.g. "2026-03-12"
+    time_gmt: str                    # GMT time string, e.g. "13:30"
+    country: str                     # e.g. "United States"
+    event: str                       # Event name
+    actual: Optional[str] = None     # Reported value (empty string = not yet released)
+    forecast: Optional[str] = None   # Consensus estimate
+    previous: Optional[str] = None   # Prior period value
+    impact: str = "low"              # "high" | "medium" | "low"
+    description: Optional[str] = None
+
+
+class EconomicCalendarResponse(BaseModel):
+    """Full week of economic events — returned by GET /calendar/economic."""
+    week_start: str                  # ISO date of Monday
+    week_end: str                    # ISO date of Friday
+    events: list[EconomicEvent] = []
+
+
 class NewsItem(BaseModel):
     """A single news headline — returned as part of NewsResponse."""
     title: str
