@@ -1173,30 +1173,38 @@ async def fetch_market_overview() -> list[dict]:
 
 async def fetch_fear_greed() -> dict:
     """
-    Fetch CNN's Fear & Greed Index.
-    The endpoint is publicly accessible — no API key required.
+    Fetch Fear & Greed Index from alternative.me (free, no key required).
+    Fetches 30 days of history to reconstruct previous_close, 1-week, and 1-month values.
     """
-    url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Referer": "https://www.cnn.com/markets/fear-and-greed",
-        "Accept":  "application/json",
-    }
+    url = "https://api.alternative.me/fng/?limit=30&format=json"
     async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(url, headers=headers)
+        r = await client.get(url)
         r.raise_for_status()
-        fg = r.json().get("fear_and_greed", {})
-        return {
-            "score":            round(fg.get("score", 0)),
-            "rating":           fg.get("rating", "neutral").replace("_", " ").title(),
-            "previous_close":   round(fg.get("previous_close",   0)),
-            "previous_1_week":  round(fg.get("previous_1_week",  0)),
-            "previous_1_month": round(fg.get("previous_1_month", 0)),
-            "previous_1_year":  round(fg.get("previous_1_year",  0)),
-        }
+        data_points = r.json().get("data", [])
+
+    if not data_points:
+        return {"score": 50, "rating": "Neutral", "previous_close": 50,
+                "previous_1_week": 50, "previous_1_month": 50, "previous_1_year": 50}
+
+    def _label(val: int) -> str:
+        if val <= 24:  return "Extreme Fear"
+        if val <= 44:  return "Fear"
+        if val <= 55:  return "Neutral"
+        if val <= 74:  return "Greed"
+        return "Extreme Greed"
+
+    def _score(idx: int) -> int:
+        return int(data_points[idx]["value"]) if idx < len(data_points) else 50
+
+    current = _score(0)
+    return {
+        "score":            current,
+        "rating":           _label(current),
+        "previous_close":   _score(1),
+        "previous_1_week":  _score(6),
+        "previous_1_month": _score(min(29, len(data_points) - 1)),
+        "previous_1_year":  50,  # not available on free tier
+    }
 
 
 # ---------------------------------------------------------------------------
