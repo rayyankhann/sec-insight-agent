@@ -21,7 +21,7 @@ const TABS = [
   { id: 'insiders',  label: 'Insiders'   },
 ]
 
-function CompanyDashboard({ companyName, ticker, cik, onClose }) {
+function CompanyDashboard({ companyName, ticker, cik, onClose, onSummarize }) {
   const [activeTab, setActiveTab] = useState('metrics')
 
   return (
@@ -98,7 +98,7 @@ function CompanyDashboard({ companyName, ticker, cik, onClose }) {
               Recent Headlines · Yahoo Finance
             </p>
             {ticker
-              ? <NewsCard ticker={ticker} />
+              ? <NewsCard ticker={ticker} onSummarize={onSummarize} />
               : <p className="text-gray-600 text-xs text-center py-6">No ticker available.</p>
             }
           </div>

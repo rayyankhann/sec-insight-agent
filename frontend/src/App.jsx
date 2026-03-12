@@ -215,6 +215,7 @@ function App() {
               ticker={activeCompany.ticker}
               cik={activeCompany.cik}
               onClose={() => setDashboardOpen(false)}
+              onSummarize={handleSend}
             />
           </div>
         )}

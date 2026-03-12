@@ -19,6 +19,7 @@ from edgar_client import (
     search_company_by_name,
     get_company_filings,
     fetch_filing_text,
+    fetch_article_text,
     fetch_stock_chart,
     fetch_stock_quote,
     fetch_company_financials,
@@ -388,3 +389,32 @@ async def get_insider_trades(cik: str) -> InsiderTradesResponse:
 
     trades = [InsiderTrade(**t) for t in trades_raw]
     return InsiderTradesResponse(cik=cik, trades=trades)
+
+
+@app.post(
+    "/fetch/article",
+    response_model=FilingContentResponse,
+    responses={502: {"model": ErrorResponse}},
+    tags=["Fetch"],
+)
+async def fetch_external_article(body: dict) -> FilingContentResponse:
+    """
+    Fetch the full text of an external article or webpage.
+
+    Uses Cloudflare Browser Rendering for JavaScript-heavy/paywalled pages
+    and falls back to a plain httpx GET if CF credentials are not set.
+
+    Body: { "url": "https://..." }
+
+    Example use: summarise a news article linked from the News tab.
+    """
+    url = (body or {}).get("url", "").strip()
+    if not url:
+        raise HTTPException(status_code=422, detail="'url' field is required in request body")
+
+    try:
+        content = await fetch_article_text(url)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching article: {str(e)}")
+
+    return FilingContentResponse(url=url, content=content, char_count=len(content))

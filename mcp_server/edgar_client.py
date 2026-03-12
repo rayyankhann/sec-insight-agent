@@ -16,6 +16,7 @@ Yahoo Finance (free, no key required):
 EDGAR API reference: https://www.sec.gov/developer
 """
 
+import os
 import re
 import asyncio
 from datetime import datetime
@@ -274,18 +275,86 @@ async def get_company_filings(
     return filings
 
 
+_SEC_HOSTS = {"sec.gov", "www.sec.gov", "data.sec.gov", "efts.sec.gov"}
+
+
+def _is_sec_url(url: str) -> bool:
+    """Return True if the URL points to SEC.gov (handled by our httpx fetcher)."""
+    try:
+        from urllib.parse import urlparse
+        return urlparse(url).hostname in _SEC_HOSTS
+    except Exception:
+        return False
+
+
+async def fetch_url_via_cloudflare(url: str) -> Optional[str]:
+    """
+    Fetch any public URL via Cloudflare Browser Rendering and return clean Markdown.
+
+    Cloudflare spins up a real headless Chrome instance, renders the full page
+    (including JavaScript), and converts the result to Markdown. This works on
+    news sites, financial pages, and other sites that block plain httpx requests.
+
+    NOT used for SEC.gov URLs — those work fine with httpx and SEC.gov blocks
+    requests from Cloudflare's datacenter IPs.
+
+    Requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in the environment.
+    Returns None on any failure so callers can fall back gracefully.
+
+    Args:
+        url: Any public webpage URL.
+
+    Returns:
+        Clean Markdown text of the page, or None on failure.
+    """
+    if _is_sec_url(url):
+        return None  # Use httpx for SEC — Cloudflare IPs are blocked by SEC bot protection
+
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+    api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+    if not account_id or not api_token:
+        return None
+
+    cf_url = (
+        f"https://api.cloudflare.com/client/v4/accounts/"
+        f"{account_id}/browser-rendering/markdown"
+    )
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "url": url,
+        "rejectResourceTypes": ["image", "font", "stylesheet"],
+        "gotoOptions": {"waitUntil": "networkidle2", "timeout": 45000},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=55.0) as client:
+            resp = await client.post(cf_url, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+        if not data.get("success"):
+            return None
+
+        markdown = data.get("result", "")
+        return markdown.strip() or None
+
+    except Exception:
+        return None
+
+
 async def fetch_filing_text(document_url: str) -> str:
     """
     Fetch and clean the text content of an SEC filing from its URL.
 
-    SEC filings can be HTML, XBRL-wrapped HTML, or plain text. This function:
-    1. Downloads the raw content from EDGAR's archives
-    2. If it's an index page (ends in -index.htm), finds and fetches the primary document
-    3. Strips all HTML tags to get clean readable text
-    4. Truncates to FILING_TEXT_LIMIT characters to manage LLM context size
+    Uses our proven httpx + regex-strip pipeline for SEC.gov documents.
+    (Cloudflare Browser Rendering is not used here because SEC.gov blocks
+    Cloudflare datacenter IPs via bot protection.)
 
     Args:
-        document_url: URL to an SEC filing document or filing index page
+        document_url: URL to an SEC filing document or filing index page.
 
     Returns:
         Clean, truncated plain text of the filing content.
@@ -304,14 +373,54 @@ async def fetch_filing_text(document_url: str) -> str:
                 doc_response.raise_for_status()
                 raw_content = doc_response.text
 
-    # Strip HTML and clean whitespace
     clean_text = _strip_html(raw_content)
 
-    # Truncate to stay within LLM context limits
     if len(clean_text) > FILING_TEXT_LIMIT:
         clean_text = clean_text[:FILING_TEXT_LIMIT] + "\n\n[Content truncated at 12,000 characters]"
 
     return clean_text
+
+
+async def fetch_article_text(url: str) -> str:
+    """
+    Fetch the full text of an external article or webpage.
+
+    Uses Cloudflare Browser Rendering for JavaScript-heavy pages and sites
+    that block plain HTTP requests (news sites, financial blogs, etc.).
+    Falls back to a plain httpx GET if Cloudflare is unavailable.
+
+    Args:
+        url: Public URL of a news article or financial page.
+
+    Returns:
+        Clean text/markdown content, truncated to FILING_TEXT_LIMIT.
+    """
+    # Try Cloudflare first for external URLs
+    cf_text = await fetch_url_via_cloudflare(url)
+    if cf_text:
+        if len(cf_text) > FILING_TEXT_LIMIT:
+            cf_text = cf_text[:FILING_TEXT_LIMIT] + "\n\n[Content truncated]"
+        return cf_text
+
+    # Fallback: plain httpx GET + HTML strip
+    browser_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            r = await client.get(url, headers=browser_headers)
+            r.raise_for_status()
+            text = _strip_html(r.text)
+    except Exception as e:
+        return f"Could not fetch article: {e}"
+
+    if len(text) > FILING_TEXT_LIMIT:
+        text = text[:FILING_TEXT_LIMIT] + "\n\n[Content truncated]"
+    return text
 
 
 def _extract_primary_doc_from_index(index_html: str, base_url: str) -> Optional[str]:
