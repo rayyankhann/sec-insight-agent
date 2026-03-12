@@ -1285,3 +1285,217 @@ async def fetch_congressional_trades(ticker: str) -> list[dict]:
 
     results.sort(key=lambda x: x.get("transaction_date") or "", reverse=True)
     return results[:40]
+
+
+# ---------------------------------------------------------------------------
+# Earnings Calendar — upcoming earnings dates via yfinance (free)
+# ---------------------------------------------------------------------------
+
+# Top 60 S&P 500 tickers by market cap — used for the weekly earnings calendar
+_EARNINGS_WATCHLIST = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "BRK-B", "LLY",
+    "AVGO", "TSLA", "JPM", "UNH", "XOM", "V", "MA", "JNJ", "HD", "PG", "COST",
+    "ABBV", "AMD", "NFLX", "CRM", "BAC", "WMT", "MRK", "CVX", "PEP", "ACN",
+    "LIN", "TMO", "ORCL", "CSCO", "GE", "MCD", "DIS", "IBM", "GS", "CAT",
+    "ADBE", "INTC", "QCOM", "TXN", "AMAT", "INTU", "AMGN", "BKNG", "ISRG",
+    "PANW", "SBUX", "LRCX", "ADI", "REGN", "PLD", "NOW", "KLAC", "MDLZ", "MMC",
+]
+
+
+async def fetch_earnings_calendar(tickers: Optional[list] = None) -> list[dict]:
+    """
+    Fetch upcoming earnings dates for a list of tickers via yfinance.
+    If no tickers provided, uses the top S&P 500 watchlist.
+    Free — no API key required.
+    """
+    import yfinance as yf
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import date as dt_date, timedelta
+
+    symbols = tickers or _EARNINGS_WATCHLIST
+
+    def _fetch_one(sym: str) -> Optional[dict]:
+        try:
+            t = yf.Ticker(sym)
+            cal = t.calendar
+            if not cal or "Earnings Date" not in cal:
+                return None
+            dates = cal["Earnings Date"]
+            if not dates:
+                return None
+            ed = dates[0]
+            if hasattr(ed, "date"):
+                ed = ed.date()
+            # Only include events within the next 60 days
+            today = dt_date.today()
+            if not (today - timedelta(days=1) <= ed <= today + timedelta(days=60)):
+                return None
+            fi = t.fast_info
+            name = getattr(fi, "company_name", "") or sym
+            return {
+                "ticker": sym,
+                "company_name": name,
+                "earnings_date": ed.isoformat(),
+                "eps_estimate": cal.get("Earnings Average"),
+                "eps_high": cal.get("Earnings High"),
+                "eps_low": cal.get("Earnings Low"),
+                "revenue_estimate": cal.get("Revenue Average"),
+            }
+        except Exception:
+            return None
+
+    def _fetch_all() -> list[dict]:
+        with ThreadPoolExecutor(max_workers=12) as ex:
+            results = list(ex.map(_fetch_one, symbols))
+        return [r for r in results if r]
+
+    loop = asyncio.get_event_loop()
+    rows = await loop.run_in_executor(None, _fetch_all)
+    rows.sort(key=lambda x: x["earnings_date"])
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Options Flow — options chain via yfinance (free)
+# ---------------------------------------------------------------------------
+
+async def fetch_options_flow(ticker: str) -> dict:
+    """
+    Fetch options chain for a ticker via yfinance.
+    Returns top calls/puts by open interest across the nearest expirations,
+    plus put/call ratio derived from total volume.
+    Free — no API key required.
+    """
+    import yfinance as yf
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch() -> dict:
+        t = yf.Ticker(ticker.upper())
+        expirations = t.options
+        if not expirations:
+            return {"ticker": ticker.upper(), "expirations": [], "calls": [], "puts": []}
+
+        # Use up to the 4 nearest expirations
+        use_exps = list(expirations[:4])
+
+        all_calls = []
+        all_puts  = []
+
+        for exp in use_exps:
+            try:
+                chain = t.option_chain(exp)
+                calls_df = chain.calls
+                puts_df  = chain.puts
+            except Exception:
+                continue
+
+            fi = t.fast_info
+            spot = getattr(fi, "last_price", None) or 0
+
+            def _row(row, side: str, exp_str: str) -> dict:
+                return {
+                    "type": side,
+                    "strike": float(row.get("strike", 0)),
+                    "expiration": exp_str,
+                    "last_price": _safe_float(row.get("lastPrice")),
+                    "bid": _safe_float(row.get("bid")),
+                    "ask": _safe_float(row.get("ask")),
+                    "volume": _safe_int(row.get("volume")),
+                    "open_interest": _safe_int(row.get("openInterest")),
+                    "implied_volatility": round(float(row.get("impliedVolatility", 0) or 0), 4),
+                    "in_the_money": bool(row.get("inTheMoney", False)),
+                }
+
+            for _, row in calls_df.iterrows():
+                all_calls.append(_row(row, "call", exp))
+            for _, row in puts_df.iterrows():
+                all_puts.append(_row(row, "put", exp))
+
+        # Sort by open interest descending, take top 20 each
+        all_calls.sort(key=lambda x: x.get("open_interest") or 0, reverse=True)
+        all_puts.sort(key=lambda x: x.get("open_interest") or 0, reverse=True)
+
+        total_call_oi = sum((c.get("open_interest") or 0) for c in all_calls)
+        total_put_oi  = sum((p.get("open_interest") or 0) for p in all_puts)
+        total_call_vol = sum((c.get("volume") or 0) for c in all_calls)
+        total_put_vol  = sum((p.get("volume") or 0) for p in all_puts)
+        pcr = round(total_put_vol / total_call_vol, 2) if total_call_vol else None
+
+        return {
+            "ticker": ticker.upper(),
+            "expirations": use_exps,
+            "put_call_ratio": pcr,
+            "total_call_oi": total_call_oi,
+            "total_put_oi": total_put_oi,
+            "calls": all_calls[:20],
+            "puts": all_puts[:20],
+        }
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _fetch)
+
+
+def _safe_float(val) -> Optional[float]:
+    try:
+        v = float(val)
+        return round(v, 4) if v == v else None  # NaN check
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(val) -> Optional[int]:
+    try:
+        v = int(val)
+        return v
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Institutional Holdings — 13F data via yfinance (free)
+# ---------------------------------------------------------------------------
+
+async def fetch_institutional_holdings(ticker: str) -> dict:
+    """
+    Fetch top institutional (13F) holders and major holder stats via yfinance.
+    Data aggregated from SEC 13F filings — completely free, no API key required.
+    """
+    import yfinance as yf
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch() -> dict:
+        t = yf.Ticker(ticker.upper())
+        result: dict = {"ticker": ticker.upper(), "holders": []}
+
+        try:
+            mh = t.major_holders
+            if mh is not None and not mh.empty:
+                # In yfinance, Breakdown is the index name and Value is the column
+                vals = mh["Value"].to_dict()
+                result["pct_institutions"] = round(float(vals.get("institutionsPercentHeld", 0)) * 100, 2)
+                result["pct_insiders"]     = round(float(vals.get("insidersPercentHeld", 0)) * 100, 2)
+                result["institutions_count"] = int(vals.get("institutionsCount", 0))
+        except Exception:
+            pass
+
+        try:
+            ih = t.institutional_holders
+            if ih is not None and not ih.empty:
+                for _, row in ih.iterrows():
+                    date_rep = row.get("Date Reported")
+                    date_str = date_rep.strftime("%Y-%m-%d") if hasattr(date_rep, "strftime") else str(date_rep)
+                    result["holders"].append({
+                        "name": str(row.get("Holder", "")),
+                        "shares": _safe_float(row.get("Shares")),
+                        "value": _safe_float(row.get("Value")),
+                        "pct_held": round(float(row.get("pctHeld", 0) or 0) * 100, 2),
+                        "pct_change": round(float(row.get("pctChange", 0) or 0) * 100, 2),
+                        "date_reported": date_str,
+                    })
+        except Exception:
+            pass
+
+        return result
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _fetch)

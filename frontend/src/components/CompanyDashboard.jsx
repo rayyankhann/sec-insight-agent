@@ -14,12 +14,16 @@ import FilingTimeline from './FilingTimeline'
 import NewsCard from './NewsCard'
 import InsiderTrading from './InsiderTrading'
 import CongressionalTrading from './CongressionalTrading'
+import OptionsFlow from './OptionsFlow'
+import InstitutionalHoldings from './InstitutionalHoldings'
 
 const TABS = [
   { id: 'metrics',   label: 'Financials' },
   { id: 'timeline',  label: 'Filings'    },
   { id: 'news',      label: 'News'       },
   { id: 'insiders',  label: 'Insiders'   },
+  { id: 'options',   label: 'Options'    },
+  { id: 'holders',   label: 'Holders'    },
   { id: 'congress',  label: 'Congress'   },
 ]
 
@@ -55,13 +59,13 @@ function CompanyDashboard({ companyName, ticker, cik, onClose, onSummarize }) {
           </button>
         </div>
 
-        {/* Tab bar — 4 tabs */}
-        <div className="flex gap-1 mt-3">
+        {/* Tab bar — scrollable */}
+        <div className="flex gap-1 mt-3 overflow-x-auto pb-0.5 scrollbar-hide">
           {TABS.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${
+              className={`flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'bg-[#1f2937] text-white'
                   : 'text-gray-500 hover:text-gray-300'
@@ -112,6 +116,30 @@ function CompanyDashboard({ companyName, ticker, cik, onClose, onSummarize }) {
               Insider Transactions · SEC EDGAR Form 4
             </p>
             <InsiderTrading cik={cik} />
+          </div>
+        )}
+
+        {activeTab === 'options' && (
+          <div>
+            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-medium">
+              Options Flow · Put/Call Ratio · Top OI
+            </p>
+            {ticker
+              ? <OptionsFlow ticker={ticker} />
+              : <p className="text-gray-600 text-xs text-center py-6">No ticker available.</p>
+            }
+          </div>
+        )}
+
+        {activeTab === 'holders' && (
+          <div>
+            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-medium">
+              Institutional Holdings · 13F Filings
+            </p>
+            {ticker
+              ? <InstitutionalHoldings ticker={ticker} />
+              : <p className="text-gray-600 text-xs text-center py-6">No ticker available.</p>
+            }
           </div>
         )}
 

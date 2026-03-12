@@ -172,6 +172,66 @@ class InsiderTradesResponse(BaseModel):
     trades: list[InsiderTrade] = []
 
 
+class EarningsEvent(BaseModel):
+    """A single upcoming earnings release."""
+    ticker: str
+    company_name: str = ""
+    earnings_date: str
+    eps_estimate: Optional[float] = None
+    eps_high: Optional[float] = None
+    eps_low: Optional[float] = None
+    revenue_estimate: Optional[float] = None
+
+
+class EarningsCalendarResponse(BaseModel):
+    """Upcoming earnings events — returned by GET /earnings/calendar."""
+    events: list[EarningsEvent] = []
+
+
+class OptionsContract(BaseModel):
+    """A single options contract."""
+    type: str                              # "call" or "put"
+    strike: float
+    expiration: str
+    last_price: Optional[float] = None
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    volume: Optional[int] = None
+    open_interest: Optional[int] = None
+    implied_volatility: Optional[float] = None
+    in_the_money: bool = False
+
+
+class OptionsFlowResponse(BaseModel):
+    """Options chain summary — returned by GET /stock/{ticker}/options."""
+    ticker: str
+    expirations: list[str] = []
+    put_call_ratio: Optional[float] = None
+    total_call_oi: int = 0
+    total_put_oi: int = 0
+    calls: list[OptionsContract] = []
+    puts: list[OptionsContract] = []
+
+
+class InstitutionalHolder(BaseModel):
+    """A single institutional holder from 13F filings."""
+    name: str
+    shares: Optional[float] = None
+    value: Optional[float] = None
+    pct_held: Optional[float] = None
+    pct_change: Optional[float] = None
+    date_reported: Optional[str] = None
+
+
+class InstitutionalHoldingsResponse(BaseModel):
+    """Institutional 13F holders — returned by GET /stock/{ticker}/institutions."""
+    ticker: str
+    pct_institutions: Optional[float] = None
+    pct_insiders: Optional[float] = None
+    institutions_count: Optional[int] = None
+    holders: list[InstitutionalHolder] = []
+
+
 class MarketIndex(BaseModel):
     """A single market index or instrument quote."""
     symbol: str

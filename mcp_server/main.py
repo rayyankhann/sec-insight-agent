@@ -30,6 +30,9 @@ from edgar_client import (
     fetch_market_overview,
     fetch_fear_greed,
     fetch_congressional_trades,
+    fetch_earnings_calendar,
+    fetch_options_flow,
+    fetch_institutional_holdings,
 )
 from models import (
     CompanySearchResult,
@@ -51,6 +54,12 @@ from models import (
     FearGreedResponse,
     CongressionalTrade,
     CongressionalTradesResponse,
+    EarningsEvent,
+    EarningsCalendarResponse,
+    OptionsContract,
+    OptionsFlowResponse,
+    InstitutionalHolder,
+    InstitutionalHoldingsResponse,
     HealthResponse,
     ErrorResponse,
 )
@@ -427,6 +436,94 @@ async def get_economic_calendar(
 
     events = [EconomicEvent(**e) for e in events_raw]
     return EconomicCalendarResponse(week_start=date_from, week_end=date_to, events=events)
+
+
+@app.get(
+    "/earnings/calendar",
+    response_model=EarningsCalendarResponse,
+    responses={502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_earnings_calendar(
+    tickers: str = Query(default="", description="Comma-separated tickers, or blank for S&P 500 watchlist"),
+) -> EarningsCalendarResponse:
+    """
+    Fetch upcoming earnings dates for major companies or a specific set of tickers.
+    Returns events within the next 60 days, sorted by date.
+    Free — powered by yfinance, no API key required.
+
+    Example: GET /earnings/calendar?tickers=AAPL,MSFT,NVDA
+    """
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()] or None
+    try:
+        raw = await fetch_earnings_calendar(ticker_list)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching earnings calendar: {str(e)}")
+    events = [EarningsEvent(**e) for e in raw]
+    return EarningsCalendarResponse(events=events)
+
+
+@app.get(
+    "/stock/{ticker}/options",
+    response_model=OptionsFlowResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_options_flow(ticker: str) -> OptionsFlowResponse:
+    """
+    Fetch top options contracts by open interest across the 4 nearest expirations.
+    Includes put/call ratio and total OI breakdown.
+    Free — powered by yfinance, no API key required.
+
+    Example: GET /stock/NVDA/options
+    """
+    try:
+        data = await fetch_options_flow(ticker)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching options for {ticker}: {str(e)}")
+    if not data.get("expirations"):
+        raise HTTPException(status_code=404, detail=f"No options data found for {ticker}.")
+    calls = [OptionsContract(**c) for c in data.get("calls", [])]
+    puts  = [OptionsContract(**p) for p in data.get("puts",  [])]
+    return OptionsFlowResponse(
+        ticker=data["ticker"],
+        expirations=data.get("expirations", []),
+        put_call_ratio=data.get("put_call_ratio"),
+        total_call_oi=data.get("total_call_oi", 0),
+        total_put_oi=data.get("total_put_oi", 0),
+        calls=calls,
+        puts=puts,
+    )
+
+
+@app.get(
+    "/stock/{ticker}/institutions",
+    response_model=InstitutionalHoldingsResponse,
+    responses={404: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    tags=["Market Data"],
+)
+async def get_institutional_holdings(ticker: str) -> InstitutionalHoldingsResponse:
+    """
+    Fetch top institutional (13F) holders from SEC filings via yfinance.
+    Includes % held by institutions, insiders, and top individual holders.
+    Free — no API key required.
+
+    Example: GET /stock/AAPL/institutions
+    """
+    try:
+        data = await fetch_institutional_holdings(ticker)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error fetching institutional holdings for {ticker}: {str(e)}")
+    if not data.get("holders"):
+        raise HTTPException(status_code=404, detail=f"No institutional holdings data found for {ticker}.")
+    holders = [InstitutionalHolder(**h) for h in data.get("holders", [])]
+    return InstitutionalHoldingsResponse(
+        ticker=data["ticker"],
+        pct_institutions=data.get("pct_institutions"),
+        pct_insiders=data.get("pct_insiders"),
+        institutions_count=data.get("institutions_count"),
+        holders=holders,
+    )
 
 
 @app.get(

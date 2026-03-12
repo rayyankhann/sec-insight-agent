@@ -163,15 +163,54 @@ function EventCard({ event }) {
   );
 }
 
+// ─── Earnings event card ──────────────────────────────────────────────────────
+
+function EarningsCard({ ev }) {
+  const fmtEst = (n) => n != null ? `$${n.toFixed(2)}` : null;
+  const fmtRev = (n) => {
+    if (n == null) return null;
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(0)}M`;
+    return `$${n}`;
+  };
+  return (
+    <div className="rounded-lg border bg-blue-950/20 border-blue-900/40 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-1 mb-1">
+        <span className="text-xs font-mono font-bold text-blue-300">{ev.ticker}</span>
+        <span className="text-[9px] text-blue-600 bg-blue-950 px-1.5 py-0.5 rounded">Earnings</span>
+      </div>
+      {ev.company_name && (
+        <p className="text-[10px] text-gray-400 truncate mb-1">{ev.company_name}</p>
+      )}
+      <div className="flex gap-2 flex-wrap text-[10px]">
+        {fmtEst(ev.eps_estimate) && (
+          <span className="text-gray-500">EPS est: <span className="text-gray-300">{fmtEst(ev.eps_estimate)}</span></span>
+        )}
+        {fmtRev(ev.revenue_estimate) && (
+          <span className="text-gray-500">Rev est: <span className="text-gray-300">{fmtRev(ev.revenue_estimate)}</span></span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function EconomicCalendar({ onClose }) {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
+  const [calendarMode, setCalendarMode] = useState("macro"); // "macro" | "earnings"
+
+  // Macro events
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [impactFilter, setImpactFilter] = useState("all");   // "all" | "high" | "medium" | "low"
-  const [countryFilter, setCountryFilter] = useState("all"); // "all" | country name
+  const [impactFilter, setImpactFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState("all");
+
+  // Earnings events
+  const [earningsEvents, setEarningsEvents] = useState([]);
+  const [earningsLoading, setEarningsLoading] = useState(false);
+  const [earningsError, setEarningsError] = useState(null);
 
   // Close on Escape
   useEffect(() => {
@@ -180,7 +219,7 @@ export default function EconomicCalendar({ onClose }) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // Fetch calendar when week changes
+  // Fetch macro calendar when week changes
   useEffect(() => {
     const friday = addDays(weekStart, 4);
     const from = isoDate(weekStart);
@@ -194,12 +233,30 @@ export default function EconomicCalendar({ onClose }) {
       .catch((e) => { setError(e.message); setLoading(false); });
   }, [weekStart]);
 
+  // Fetch earnings calendar (lazy — only when tab is opened first time)
+  useEffect(() => {
+    if (calendarMode !== "earnings" || earningsEvents.length > 0 || earningsLoading) return;
+    setEarningsLoading(true);
+    setEarningsError(null);
+    fetch(`${MCP_BASE}/earnings/calendar`)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d => { setEarningsEvents(d.events || []); setEarningsLoading(false); })
+      .catch(e => { setEarningsError(e.message); setEarningsLoading(false); });
+  }, [calendarMode]);
+
   const prevWeek = useCallback(() => setWeekStart(d => addDays(d, -7)), []);
   const nextWeek = useCallback(() => setWeekStart(d => addDays(d, 7)), []);
   const thisWeek = useCallback(() => setWeekStart(getMonday(new Date())), []);
 
   // Build day columns
   const days = Array.from({ length: 5 }, (_, i) => addDays(weekStart, i));
+
+  // Group earnings events by date, filtered to current week
+  const earningsByDate = {};
+  for (const day of days) {
+    const key = isoDate(day);
+    earningsByDate[key] = earningsEvents.filter(e => e.earnings_date === key);
+  }
 
   // Derive unique countries for filter (major ones first, then others alphabetically)
   const eventCountries = [...new Set(events.map(e => e.country))];
@@ -231,17 +288,37 @@ export default function EconomicCalendar({ onClose }) {
       <div className="flex-shrink-0 border-b border-[#1f2937] bg-[#0d1117] px-6 py-4">
         <div className="flex items-center justify-between gap-4">
 
-          {/* Title */}
+          {/* Title + mode toggle */}
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             </div>
             <div>
-              <h2 className="text-white font-semibold text-base leading-tight">Economic Calendar</h2>
-              <p className="text-gray-500 text-xs">Global macro events · Nasdaq Data</p>
+              <h2 className="text-white font-semibold text-base leading-tight">
+                {calendarMode === "macro" ? "Economic Calendar" : "Earnings Calendar"}
+              </h2>
+              <p className="text-gray-500 text-xs">
+                {calendarMode === "macro" ? "Global macro events · Nasdaq Data" : "Upcoming earnings · Top S&P 500 · yfinance"}
+              </p>
+            </div>
+            {/* Mode toggle */}
+            <div className="flex gap-1 ml-2 bg-[#0d1117] border border-[#1f2937] rounded-lg p-0.5">
+              {[
+                { id: "macro",    label: "📊 Macro"    },
+                { id: "earnings", label: "💰 Earnings" },
+              ].map(m => (
+                <button key={m.id} onClick={() => setCalendarMode(m.id)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    calendarMode === m.id
+                      ? "bg-[#1f2937] text-white"
+                      : "text-gray-500 hover:text-gray-300"
+                  }`}>
+                  {m.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -330,7 +407,56 @@ export default function EconomicCalendar({ onClose }) {
 
       {/* ── Calendar grid ──────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
-        {loading ? (
+        {calendarMode === "earnings" ? (
+          earningsLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex flex-col items-center gap-3">
+                <div className="flex gap-1">
+                  {[0,1,2].map(i => (
+                    <div key={i} className="w-2 h-2 rounded-full bg-blue-500 animate-bounce"
+                      style={{ animationDelay: `${i * 0.15}s` }} />
+                  ))}
+                </div>
+                <p className="text-gray-500 text-sm">Loading earnings…</p>
+                <p className="text-gray-600 text-xs">Fetching dates for ~60 major tickers</p>
+              </div>
+            </div>
+          ) : earningsError ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-red-400 text-sm">Could not load earnings: {earningsError}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-5 h-full divide-x divide-[#1f2937]">
+              {days.map((day) => {
+                const key = isoDate(day);
+                const dayEarnings = earningsByDate[key] || [];
+                const today = isToday(key);
+                return (
+                  <div key={key} className="flex flex-col overflow-hidden">
+                    <div className={`flex-shrink-0 px-3 py-2.5 border-b border-[#1f2937] ${
+                      today ? "bg-blue-950/30" : "bg-[#0d1117]"
+                    }`}>
+                      <p className={`text-xs font-semibold ${today ? "text-blue-400" : "text-gray-400"}`}>
+                        {fmtDayHeader(day)}
+                        {today && <span className="ml-1.5 text-[10px] font-normal text-blue-500">Today</span>}
+                      </p>
+                      <p className="text-[10px] text-gray-600 mt-0.5">
+                        {dayEarnings.length} earning{dayEarnings.length !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-2 py-2 space-y-2">
+                      {dayEarnings.length === 0 ? (
+                        <p className="text-center text-gray-700 text-xs py-8">No earnings</p>
+                      ) : (
+                        dayEarnings.map((ev, i) => <EarningsCard key={i} ev={ev} />)
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-3">
               <div className="flex gap-1">
@@ -387,12 +513,16 @@ export default function EconomicCalendar({ onClose }) {
             })}
           </div>
         )}
+        )}
       </div>
 
       {/* ── Footer ─────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 border-t border-[#1f2937] px-6 py-2 bg-[#0d1117]">
         <p className="text-[10px] text-gray-600 text-center">
-          Data: Nasdaq Economic Calendar · Times shown in local browser time · Click any event for details · Press Esc to close
+          {calendarMode === "macro"
+            ? "Data: Nasdaq Economic Calendar · Times shown in local browser time · Click any event for details · Press Esc to close"
+            : "Data: Yahoo Finance · Top S&P 500 earnings dates · EPS & Revenue estimates · Press Esc to close"
+          }
         </p>
       </div>
     </div>
