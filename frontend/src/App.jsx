@@ -23,6 +23,7 @@ import CompanyDashboard from './components/CompanyDashboard'
 import EconomicCalendar from './components/EconomicCalendar'
 import MarketBar from './components/MarketBar'
 import Watchlist from './components/Watchlist'
+import HomeScreen from './components/HomeScreen'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -243,13 +244,17 @@ function App() {
       {/* ─── Main Body (two-column when dashboard/watchlist is open) ─────── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* Left: Chat panel */}
+        {/* Left: Chat panel (or home screen when no messages) */}
         <div className={`flex flex-col flex-1 min-w-0 transition-all duration-300 ${(hasDashboard || watchlistOpen) ? 'border-r border-[#1f2937]' : ''}`}>
-          <ChatWindow
-            messages={messages}
-            isLoading={isLoading}
-            onSuggestionClick={handleSend}
-          />
+          {messages.length === 0 ? (
+            <HomeScreen onSend={handleSend} />
+          ) : (
+            <ChatWindow
+              messages={messages}
+              isLoading={isLoading}
+              onSuggestionClick={handleSend}
+            />
+          )}
           <SearchBar onSend={handleSend} isLoading={isLoading} />
         </div>
 
