@@ -39,6 +39,38 @@ function isoToday() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function isoPlusDays(offset) {
+  const d = new Date()
+  d.setDate(d.getDate() + offset)
+  return d.toISOString().slice(0, 10)
+}
+
+function eventDateTime(ev) {
+  // ev.date is ISO (YYYY-MM-DD), ev.time_gmt is HH:MM in GMT
+  try {
+    const [year, month, day] = (ev.date || '').split('-').map(Number)
+    const [h, m] = (ev.time_gmt || '00:00').split(':').map(Number)
+    // Construct as UTC so comparisons are stable
+    return new Date(Date.UTC(year, month - 1, day, h, m || 0, 0, 0))
+  } catch {
+    return null
+  }
+}
+
+function formatCountdown(target) {
+  if (!target) return ''
+  const now = new Date()
+  const diffMs = target.getTime() - now.getTime()
+  if (diffMs <= 0) return 'Now'
+  const totalMinutes = Math.round(diffMs / 60000)
+  const days = Math.floor(totalMinutes / (60 * 24))
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60)
+  const minutes = totalMinutes % 60
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
+
 // ─── Instruments shown in the overview grid ───────────────────────────────────
 // (subset of the 12 returned by market/overview; pick the most recognisable 6)
 const CARD_SYMBOLS = ['^GSPC', '^IXIC', '^DJI', 'GC=F', 'BTC-USD', '^VIX']
@@ -137,27 +169,147 @@ const SUGGESTIONS = [
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+function SectionHeader({ title, loading, right }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <h3 className="text-[10px] font-semibold uppercase tracking-widest flex-shrink-0"
+        style={{ color: 'var(--text-muted)', letterSpacing: '0.08em' }}>
+        {title}
+      </h3>
+      <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+      {loading && <span className="text-[10px] animate-pulse" style={{ color: 'var(--text-muted)' }}>Loading…</span>}
+      {right}
+    </div>
+  )
+}
+
+function NextEventCard({ ev }) {
+  const dt = eventDateTime(ev)
+  const countdown = dt ? formatCountdown(dt) : ''
+  const isHigh = ev.impact === 'high'
+  const impactLabel = ev.impact_score != null ? `${ev.impact_score}/10` : ev.impact
+  const assets = Array.isArray(ev.affected_assets) ? ev.affected_assets.slice(0, 4) : []
+
+  return (
+    <div
+      className="rounded-xl p-4 flex flex-col gap-3"
+      style={{
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-base)',
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ background: isHigh ? '#f87171' : '#fbbf24' }}
+          />
+          <span
+            className="text-[10px] font-mono uppercase tracking-widest"
+            style={{ color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            Next Macro Event
+          </span>
+        </div>
+        {countdown && (
+          <span
+            className="text-[11px] font-medium"
+            style={{ color: 'var(--blue-hover)' }}
+          >
+            in {countdown}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="space-y-1">
+          <p
+            className="text-sm font-semibold"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            {ev.event}
+          </p>
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            {dt && (
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {dt.toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                })}{' '}
+                ·{' '}
+                {dt.toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true,
+                })}
+              </span>
+            )}
+            <span
+              className="px-2 py-0.5 rounded-full"
+              style={{
+                color: isHigh ? '#fecaca' : '#fef3c7',
+                background: isHigh
+                  ? 'rgba(248,113,113,0.12)'
+                  : 'rgba(251,191,36,0.12)',
+                border: isHigh
+                  ? '1px solid rgba(248,113,113,0.35)'
+                  : '1px solid rgba(251,191,36,0.35)',
+              }}
+            >
+              {impactLabel}
+            </span>
+          </div>
+        </div>
+
+        {assets.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {assets.map((a) => (
+              <span
+                key={a}
+                className="px-2 py-0.5 rounded-full text-[10px]"
+                style={{
+                  background: 'var(--bg-interactive)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                {a}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function MarketCard({ item }) {
   const up = (item.change_pct ?? 0) >= 0
   return (
-    <div className={`relative rounded-xl border p-4 bg-gradient-to-br transition-all duration-200 overflow-hidden
-      ${up
-        ? 'from-green-950/30 to-[#0d1424] border-green-900/30 hover:border-green-700/50'
-        : 'from-red-950/30 to-[#0d1424] border-red-900/30 hover:border-red-700/50'
-      }`}>
-      {/* Subtle glow in corner */}
-      <div className={`absolute -top-4 -right-4 w-16 h-16 rounded-full blur-2xl opacity-20
-        ${up ? 'bg-green-400' : 'bg-red-400'}`} />
+    <div className="relative rounded-xl p-4 overflow-hidden transition-all duration-200 group"
+      style={{
+        background: 'var(--bg-surface)',
+        border: `1px solid ${up ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)'}`,
+      }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = up ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = up ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)' }}>
+      {/* Corner glow */}
+      <div className="absolute -top-4 -right-4 w-16 h-16 rounded-full blur-2xl pointer-events-none"
+        style={{ background: up ? 'rgba(52,211,153,0.18)' : 'rgba(248,113,113,0.18)', opacity: 0.8 }} />
 
-      <p className="text-[11px] text-gray-500 uppercase tracking-widest font-medium truncate">
+      <p className="text-[10px] uppercase tracking-widest font-medium truncate"
+        style={{ color: 'var(--text-muted)' }}>
         {item.name}
       </p>
-      <p className="text-xl font-bold text-white font-mono mt-1 leading-none">
+      <p className="text-xl font-bold mt-1 leading-none font-mono"
+        style={{ color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}>
         {fmtPrice(item.price, item.symbol)}
       </p>
-      <p className={`text-sm font-semibold mt-1.5 flex items-center gap-1 ${up ? 'text-green-400' : 'text-red-400'}`}>
+      <p className="text-sm font-semibold mt-1.5 flex items-center gap-1"
+        style={{ color: up ? 'var(--green)' : 'var(--red)' }}>
         {up ? '▲' : '▼'} {Math.abs(item.change_pct ?? 0).toFixed(2)}%
-        <span className="text-xs font-normal opacity-60 ml-1">
+        <span className="text-xs font-normal ml-1" style={{ opacity: 0.55 }}>
           {up ? '+' : ''}{item.change != null ? item.change.toFixed(2) : ''}
         </span>
       </p>
@@ -168,23 +320,29 @@ function MarketCard({ item }) {
 function EventPill({ ev }) {
   const isHigh = ev.impact === 'high'
   return (
-    <div className={`flex-shrink-0 flex flex-col gap-1 px-3 py-2.5 rounded-xl border min-w-[160px] max-w-[200px]
-      ${isHigh
-        ? 'bg-red-950/20 border-red-900/40'
-        : 'bg-yellow-950/10 border-yellow-900/30'
-      }`}>
+    <div className="flex-shrink-0 flex flex-col gap-1 px-3 py-2.5 rounded-xl min-w-[160px] max-w-[200px]"
+      style={{
+        background: 'var(--bg-surface)',
+        border: `1px solid ${isHigh ? 'rgba(248,113,113,0.2)' : 'rgba(251,191,36,0.15)'}`,
+      }}>
       <div className="flex items-center gap-1.5">
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isHigh ? 'bg-red-500' : 'bg-yellow-400'}`} />
-        <span className="text-[10px] text-gray-500 font-mono">{fmtTime(ev.time_gmt)}</span>
+        <span className="w-1.5 h-1.5 rounded-full shrink-0"
+          style={{ background: isHigh ? '#f87171' : '#fbbf24' }} />
+        <span className="text-[10px] font-mono" style={{ color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
+          {fmtTime(ev.time_gmt)}
+        </span>
         {ev.impact_score >= 7 && (
-          <span className="text-[9px] font-bold text-red-400 bg-red-950 border border-red-800 px-1 py-0.5 rounded ml-auto">
+          <span className="text-[9px] font-bold ml-auto px-1 py-0.5 rounded"
+            style={{ color: '#f87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)' }}>
             {ev.impact_score}/10
           </span>
         )}
       </div>
-      <p className="text-xs text-gray-200 font-medium leading-tight line-clamp-2">{ev.event}</p>
+      <p className="text-xs font-medium leading-tight line-clamp-2" style={{ color: 'var(--text-primary)' }}>
+        {ev.event}
+      </p>
       {ev.forecast && (
-        <span className="text-[10px] text-blue-400">F: {ev.forecast}</span>
+        <span className="text-[10px]" style={{ color: 'var(--blue-hover)' }}>Fcst: {ev.forecast}</span>
       )}
     </div>
   )
@@ -192,12 +350,29 @@ function EventPill({ ev }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function HomeScreen({ onSend }) {
+export default function HomeScreen({ onSend, isLoading = false }) {
   const [market, setMarket] = useState([])
   const [events, setEvents] = useState([])
+  const [nextEvent, setNextEvent] = useState(null)
+  const [earnings, setEarnings] = useState([])
   const [loadingMarket, setLoadingMarket] = useState(true)
+  const [lastSession, setLastSession] = useState(null)
+  const [inputValue, setInputValue] = useState('')
 
   useEffect(() => {
+    // Load last session metadata (if any)
+    try {
+      const raw = typeof window !== 'undefined'
+        ? window.localStorage.getItem('sec_insight_last_session')
+        : null
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        setLastSession(parsed)
+      }
+    } catch {
+      // ignore
+    }
+
     // Load market overview
     fetch(`${MCP}/market/overview`)
       .then(r => r.ok ? r.json() : null)
@@ -205,16 +380,49 @@ export default function HomeScreen({ onSend }) {
       .catch(() => {})
       .finally(() => setLoadingMarket(false))
 
-    // Load today's events (high + medium impact only)
+    // Load high / medium impact events for today + next few days
     const today = isoToday()
-    fetch(`${MCP}/calendar/economic?date_from=${today}&date_to=${today}`)
+    const to = isoPlusDays(3)
+    fetch(`${MCP}/calendar/economic?date_from=${today}&date_to=${to}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (!d) return
-        const notable = (d.events || [])
-          .filter(e => e.impact === 'high' || e.impact === 'medium')
+        const all = (d.events || []).filter(
+          e => e.impact === 'high' || e.impact === 'medium'
+        )
+
+        // Today's strip
+        const todayEvents = all
+          .filter(e => e.date === today)
           .slice(0, 6)
-        setEvents(notable)
+        setEvents(todayEvents)
+
+        // Next upcoming event (today or next few days)
+        const now = new Date()
+        const withDt = all
+          .map(e => ({ ev: e, dt: eventDateTime(e) }))
+          .filter(x => x.dt && x.dt >= now)
+
+        if (withDt.length > 0) {
+          withDt.sort((a, b) => {
+            const diff = a.dt - b.dt
+            if (diff !== 0) return diff
+            const ia = a.ev.impact_score ?? 0
+            const ib = b.ev.impact_score ?? 0
+            return ib - ia
+          })
+          setNextEvent(withDt[0].ev)
+        }
+      })
+      .catch(() => {})
+
+    // Lightweight earnings radar: today -> next 3 days
+    fetch(`${MCP}/earnings/calendar?date_from=${today}&date_to=${to}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const rows = (d.events || []).slice(0, 8)
+        setEarnings(rows)
       })
       .catch(() => {})
   }, [])
@@ -224,36 +432,184 @@ export default function HomeScreen({ onSend }) {
     .map(sym => market.find(m => m.symbol === sym))
     .filter(Boolean)
 
-  return (
-    <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-8 max-w-4xl mx-auto w-full">
+  const canSend = inputValue.trim().length > 0 && !isLoading
 
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <div className="text-center pt-4">
-        <div className="inline-flex items-center gap-2 bg-blue-950/40 border border-blue-800/30 rounded-full px-4 py-1.5 mb-4">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-          <span className="text-xs text-blue-400 font-medium tracking-wide">
-            Powered by SEC EDGAR · Live Market Data
+  function handleSubmit() {
+    const trimmed = inputValue.trim()
+    if (!trimmed || isLoading) return
+    onSend(trimmed)
+    setInputValue('')
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
+    }
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-6 py-8 flex flex-col gap-8 max-w-3xl mx-auto w-full">
+
+      {/* ── Hero with welcome message + glassy chat card ──────────────────── */}
+      <div className="pt-6 flex flex-col items-center text-center gap-4">
+        <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5"
+          style={{
+            background: 'rgba(15,23,42,0.9)',
+            border: '1px solid var(--border-subtle)',
+          }}>
+          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--blue)' }} />
+          <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Welcome to SEC Insight Agent
           </span>
         </div>
-        <h2 className="text-2xl font-bold text-white leading-tight">
-          What would you like to research today?
+        <h2
+          className="text-2xl font-semibold leading-tight"
+          style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
+        >
+          Ask anything about public company filings.
         </h2>
-        <p className="text-gray-500 text-sm mt-2">
-          Ask about any public company's filings, financials, risks, or executive outlook.
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          Combine live SEC EDGAR data, market context, and macro events into one conversation.
         </p>
+
+        {/* Glassy chat card */}
+        <div className="w-full max-w-2xl">
+          <div
+            className="rounded-3xl px-5 py-4"
+            style={{
+              background:
+                'radial-gradient(circle at top, rgba(59,130,246,0.35), transparent 55%), rgba(15,23,42,0.92)',
+              border: '1px solid var(--border-base)',
+              boxShadow: '0 22px 70px rgba(0,0,0,0.9)',
+            }}
+          >
+            <textarea
+              value={inputValue}
+              onChange={e => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading}
+              rows={1}
+              placeholder="Initiate a query or send a command to the AI…"
+              className="w-full bg-transparent text-sm resize-none outline-none leading-relaxed"
+              style={{
+                color: 'var(--text-primary)',
+                caretColor: 'var(--blue)',
+                maxHeight: '120px',
+                fontFamily: 'inherit',
+              }}
+            />
+            <div className="mt-3 flex items-center justify-between text-[11px]">
+              <span style={{ color: 'var(--text-muted)' }}>
+                Enter to send · Shift+Enter for new line
+              </span>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!canSend}
+                className="inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-medium transition-all"
+                style={{
+                  background: canSend ? 'var(--blue)' : 'var(--bg-hover)',
+                  color: canSend ? '#fff' : 'var(--text-muted)',
+                  boxShadow: canSend ? '0 0 20px rgba(59,130,246,0.6)' : 'none',
+                  opacity: isLoading ? 0.7 : 1,
+                  cursor: canSend ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Ask SEC Insight
+              </button>
+            </div>
+          </div>
+
+          {/* Tool chips row */}
+          <div className="mt-3 flex flex-wrap gap-2 justify-center text-[11px]">
+            <button
+              type="button"
+              onClick={() => onSend("Scan today's macro events that matter for US equities.")}
+              className="px-3 py-1.5 rounded-full"
+              style={{
+                background: 'var(--bg-interactive)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Macro Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => onSend("Summarize the most important risks in Tesla's latest 10-K.")}
+              className="px-3 py-1.5 rounded-full"
+              style={{
+                background: 'var(--bg-interactive)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Filing Summary
+            </button>
+            <button
+              type="button"
+              onClick={() => onSend("Show key insider and institutional activity for NVDA.")}
+              className="px-3 py-1.5 rounded-full"
+              style={{
+                background: 'var(--bg-interactive)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Ownership & Flows
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* ── Resume last session ──────────────────────────────────────────── */}
+      {lastSession?.query && (
+        <section>
+          <div
+            className="flex items-center justify-between gap-3 rounded-xl px-4 py-3"
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div className="min-w-0">
+              <p
+                className="text-xs font-medium"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Last time you were looking at{' '}
+                <span style={{ color: 'var(--text-primary)' }}>
+                  {lastSession.company_name || lastSession.company_ticker || 'a filing query'}
+                </span>
+                .
+              </p>
+            </div>
+            <button
+              onClick={() => onSend(lastSession.query)}
+              className="text-xs font-medium rounded-lg px-3 py-1.5 transition-all"
+              style={{
+                background: 'var(--blue)',
+                color: '#fff',
+                boxShadow: '0 2px 10px rgba(64,144,232,0.35)',
+              }}
+            >
+              Resume
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* ── Market Overview Cards ─────────────────────────────────────────── */}
+      {nextEvent && (
+        <section>
+          <NextEventCard ev={nextEvent} />
+        </section>
+      )}
 
       {/* ── Market Overview Cards ─────────────────────────────────────────── */}
       <section>
-        <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
-            Live Markets
-          </h3>
-          <div className="flex-1 h-px bg-[#1f2937]" />
-          {loadingMarket && (
-            <span className="text-[10px] text-gray-700 animate-pulse">Loading…</span>
-          )}
-        </div>
+        <SectionHeader title="Live Markets" loading={loadingMarket} right={null} />
         {cards.length > 0 ? (
           <div className="grid grid-cols-3 gap-3">
             {cards.map(item => <MarketCard key={item.symbol} item={item} />)}
@@ -261,7 +617,8 @@ export default function HomeScreen({ onSend }) {
         ) : (
           <div className="grid grid-cols-3 gap-3">
             {[...Array(6)].map((_, i) => (
-              <div key={i} className="rounded-xl border border-[#1f2937] bg-[#0d1424] p-4 animate-pulse h-[88px]" />
+              <div key={i} className="rounded-xl p-4 h-[88px] animate-pulse"
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }} />
             ))}
           </div>
         )}
@@ -270,40 +627,67 @@ export default function HomeScreen({ onSend }) {
       {/* ── Today's Key Events ───────────────────────────────────────────── */}
       {events.length > 0 && (
         <section>
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
-              Today's Key Events
-            </h3>
-            <div className="flex-1 h-px bg-[#1f2937]" />
-            <span className="text-[10px] text-gray-600">{isoToday()}</span>
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+          <SectionHeader title="Today's Key Events"
+            right={<span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>{isoToday()}</span>} />
+          <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide">
             {events.map((ev, i) => <EventPill key={i} ev={ev} />)}
           </div>
         </section>
       )}
 
+      {/* ── Earnings Radar (next few days) ───────────────────────────────── */}
+      {earnings.length > 0 && (
+        <section>
+          <SectionHeader title="Earnings Radar" />
+          <div className="flex flex-wrap gap-2 text-[11px]">
+            {earnings.map((e, idx) => (
+              <div
+                key={`${e.ticker}-${idx}`}
+                className="px-2.5 py-1.5 rounded-lg"
+                style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <span
+                  className="font-mono font-semibold mr-1"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {e.ticker}
+                </span>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  {e.date} · {e.when || 'TBA'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* ── Query Suggestions ────────────────────────────────────────────── */}
-      <section className="pb-4">
-        <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
-            Try Asking
-          </h3>
-          <div className="flex-1 h-px bg-[#1f2937]" />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+      <section className="pb-6">
+        <SectionHeader title="Try Asking" />
+        <div className="grid grid-cols-2 gap-2.5">
           {SUGGESTIONS.map((s, i) => (
             <button
               key={i}
               onClick={() => onSend(s.query)}
-              className={`group text-left flex items-start gap-3 px-4 py-3.5 rounded-xl border
-                bg-gradient-to-br transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]
-                ${s.accent}`}
+              className="group text-left flex items-start gap-3 px-4 py-3.5 rounded-xl transition-all duration-150 hover:scale-[1.015] active:scale-[0.99]"
+              style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-base)',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-bright)'; e.currentTarget.style.background = 'var(--bg-elevated)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-base)'; e.currentTarget.style.background = 'var(--bg-surface)' }}
             >
-              <span className="text-gray-500 group-hover:text-gray-300 transition-colors mt-0.5 flex-shrink-0">
+              <span className="mt-0.5 flex-shrink-0 transition-colors"
+                style={{ color: 'var(--text-muted)' }}
+                onMouseEnter={e => e.currentTarget.parentElement.dispatchEvent(new MouseEvent('mouseenter'))}
+              >
                 {s.icon}
               </span>
-              <span className="text-sm text-gray-400 group-hover:text-gray-200 leading-snug transition-colors">
+              <span className="text-sm leading-snug transition-colors"
+                style={{ color: 'var(--text-secondary)' }}>
                 {s.label}
               </span>
             </button>

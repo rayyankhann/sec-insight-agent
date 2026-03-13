@@ -50,7 +50,7 @@ function ChatWindow({ messages, isLoading, onSuggestionClick }) {
   const hasMessages = messages.length > 0
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
+    <div className="flex-1 overflow-y-auto px-4 py-6" style={{ background: 'var(--bg-base)' }}>
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Always show the welcome message at the top */}
         <MessageBubble

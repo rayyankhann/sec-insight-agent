@@ -130,6 +130,20 @@ function App() {
       }
       setMessages((prev) => [...prev, agentMsg])
 
+      // Persist minimal \"last session\" context for HomeScreen resume banner
+      try {
+        const lastSession = {
+          query: userMessage,
+          company_ticker: data.company_ticker || null,
+          company_name: data.company_name || null,
+          company_cik: data.company_cik || null,
+          timestamp: Date.now(),
+        }
+        window.localStorage.setItem('sec_insight_last_session', JSON.stringify(lastSession))
+      } catch {
+        // Ignore storage errors (e.g., Safari private mode)
+      }
+
       // Open / update the sidebar dashboard when a company is identified
       if (data.company_cik) {
         setActiveCompany({
@@ -159,131 +173,300 @@ function App() {
   const hasDashboard = !!activeCompany && dashboardOpen
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0f1e]">
+    <div className="flex h-screen" style={{ background: 'var(--bg-base)' }}>
+      {/* Left sidebar — BeeBot-style navigation */}
+      <Sidebar
+        onSend={handleSend}
+        onOpenCalendar={() => setCalendarOpen(true)}
+        onToggleWatchlist={() => {
+          setWatchlistOpen(v => !v)
+          if (dashboardOpen) setDashboardOpen(false)
+        }}
+      />
 
-      {/* ─── Header Bar ──────────────────────────────────────────────────── */}
-      <header className="flex-shrink-0 border-b border-[#1f2937] bg-[#111827] px-6 py-4 z-10">
-        <div className="flex items-center justify-between max-w-full">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-900/40">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-white font-semibold text-lg leading-none">SEC Insight Agent</h1>
-              <p className="text-gray-500 text-xs mt-0.5">Real-time answers from SEC filings</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Company pill — clickable to toggle the dashboard panel */}
-            {activeCompany && (
-              <button
-                onClick={() => setDashboardOpen(v => !v)}
-                title={dashboardOpen ? 'Hide dashboard' : 'Show dashboard'}
-                className="hidden sm:flex items-center gap-2 text-xs text-gray-300 bg-[#1a2233] border border-[#1f2937] rounded-full px-3 py-1.5 hover:border-blue-700 hover:text-blue-300 transition-colors"
+      {/* Main column: header, market bar, chat/dashboard */}
+      <div className="flex flex-col flex-1 min-w-0">
+        {/* ─── Header Bar ────────────────────────────────────────────────── */}
+        <header
+          className="flex-shrink-0 z-10"
+          style={{
+            background: 'var(--bg-elevated)',
+            borderBottom: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div className="flex items-center justify-between px-5 h-14">
+            {/* Brand */}
+            <div className="flex items-center gap-3">
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #0ea5e9 100%)',
+                  boxShadow: '0 0 18px rgba(59,130,246,0.55)',
+                }}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                {activeCompany.ticker || activeCompany.name}
-                {/* chevron flips direction based on panel state */}
                 <svg
-                  className={`w-3 h-3 opacity-60 transition-transform ${dashboardOpen ? 'rotate-180' : ''}`}
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                  className="w-4 h-4 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                  />
                 </svg>
+              </div>
+              <div>
+                <h1
+                  className="font-semibold text-sm tracking-tight"
+                  style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}
+                >
+                  SEC Insight
+                </h1>
+                <p
+                  className="text-xs"
+                  style={{
+                    color: 'var(--text-muted)',
+                    fontSize: '10px',
+                    marginTop: '-1px',
+                  }}
+                >
+                  AI-powered filings research
+                </p>
+              </div>
+            </div>
+
+            {/* Right controls */}
+            <div className="flex items-center gap-2">
+              {/* Active company pill */}
+              {activeCompany && (
+                <button
+                  onClick={() => setDashboardOpen(v => !v)}
+                  className="hidden sm:flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 transition-all duration-150"
+                  style={{
+                    color: dashboardOpen ? '#79b8ff' : 'var(--text-secondary)',
+                    background: dashboardOpen ? 'rgba(64,144,232,0.12)' : 'transparent',
+                    border: `1px solid ${
+                      dashboardOpen ? 'rgba(64,144,232,0.35)' : 'var(--border-base)'
+                    }`,
+                  }}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: '#4090e8' }}
+                  />
+                  {activeCompany.ticker || activeCompany.name}
+                  <svg
+                    className={`w-3 h-3 transition-transform ${dashboardOpen ? 'rotate-90' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </button>
+              )}
+
+              {/* Calendar quick toggle */}
+              <button
+                onClick={() => setCalendarOpen(v => !v)}
+                className="flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5 transition-all duration-150"
+                style={{
+                  color: calendarOpen ? '#a78bfa' : 'var(--text-secondary)',
+                  background: calendarOpen ? 'rgba(167,139,250,0.08)' : 'transparent',
+                  border: `1px solid ${
+                    calendarOpen ? 'rgba(167,139,250,0.3)' : 'var(--border-base)'
+                  }`,
+                }}
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Calendar</span>
               </button>
-            )}
-            {/* Watchlist toggle */}
-            <button
-              onClick={() => { setWatchlistOpen(v => !v); if (dashboardOpen) setDashboardOpen(false) }}
-              title="Watchlist"
-              className={`flex items-center gap-2 text-xs rounded-full px-3 py-1.5 border transition-colors ${
-                watchlistOpen
-                  ? 'text-amber-300 bg-amber-950 border-amber-700'
-                  : 'text-gray-400 bg-[#1a2233] border-[#1f2937] hover:text-amber-300 hover:border-amber-700'
-              }`}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-              </svg>
-              <span className="hidden sm:inline">Watchlist</span>
-            </button>
 
-            {/* Economic Calendar toggle */}
-            <button
-              onClick={() => setCalendarOpen(v => !v)}
-              title="Economic Calendar"
-              className={`flex items-center gap-2 text-xs rounded-full px-3 py-1.5 border transition-colors ${
-                calendarOpen
-                  ? 'text-indigo-300 bg-indigo-950 border-indigo-700'
-                  : 'text-gray-400 bg-[#1a2233] border-[#1f2937] hover:text-indigo-300 hover:border-indigo-700'
-              }`}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span className="hidden sm:inline">Calendar</span>
-            </button>
-
-            <div className="flex items-center gap-2 text-xs text-gray-400 bg-[#1a2233] border border-[#1f2937] rounded-full px-3 py-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              SEC EDGAR Live
+              {/* Live indicator */}
+              <div
+                className="hidden sm:flex items-center gap-1.5 text-xs rounded-md px-2.5 py-1.5"
+                style={{
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span style={{ fontSize: '11px' }}>EDGAR Live</span>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* ─── Market Bar ──────────────────────────────────────────────────── */}
-      <MarketBar />
+        {/* ─── Market Bar ─────────────────────────────────────────────────── */}
+        <MarketBar />
 
-      {/* ─── Main Body (two-column when dashboard/watchlist is open) ─────── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* ─── Main Body (two-column when dashboard/watchlist is open) ────── */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Left: Chat panel (or home screen when no messages) */}
+          <div
+            className="flex flex-col flex-1 min-w-0 transition-all duration-300"
+            style={
+              hasDashboard || watchlistOpen
+                ? { borderRight: '1px solid var(--border-subtle)' }
+                : {}
+            }
+          >
+            {messages.length === 0 ? (
+              <HomeScreen onSend={handleSend} isLoading={isLoading} />
+            ) : (
+              <ChatWindow
+                messages={messages}
+                isLoading={isLoading}
+                onSuggestionClick={handleSend}
+              />
+            )}
+            {messages.length > 0 && (
+              <SearchBar onSend={handleSend} isLoading={isLoading} />
+            )}
+          </div>
 
-        {/* Left: Chat panel (or home screen when no messages) */}
-        <div className={`flex flex-col flex-1 min-w-0 transition-all duration-300 ${(hasDashboard || watchlistOpen) ? 'border-r border-[#1f2937]' : ''}`}>
-          {messages.length === 0 ? (
-            <HomeScreen onSend={handleSend} />
-          ) : (
-            <ChatWindow
-              messages={messages}
-              isLoading={isLoading}
-              onSuggestionClick={handleSend}
-            />
+          {/* Right: Company Dashboard — slides in when a company is identified */}
+          {hasDashboard && !watchlistOpen && (
+            <div className="w-80 flex-shrink-0 flex flex-col">
+              <CompanyDashboard
+                companyName={activeCompany.name}
+                ticker={activeCompany.ticker}
+                cik={activeCompany.cik}
+                onClose={() => setDashboardOpen(false)}
+                onSummarize={handleSend}
+              />
+            </div>
           )}
-          <SearchBar onSend={handleSend} isLoading={isLoading} />
+
+          {/* Right: Watchlist panel */}
+          {watchlistOpen && (
+            <div className="w-72 flex-shrink-0 flex flex-col">
+              <Watchlist
+                onClose={() => setWatchlistOpen(false)}
+                onAsk={ticker =>
+                  handleSend(
+                    `What are the biggest risks mentioned in ${ticker}'s latest 10-K?`,
+                  )
+                }
+              />
+            </div>
+          )}
         </div>
 
-        {/* Right: Company Dashboard — slides in when a company is identified */}
-        {hasDashboard && !watchlistOpen && (
-          <div className="w-80 flex-shrink-0 flex flex-col">
-            <CompanyDashboard
-              companyName={activeCompany.name}
-              ticker={activeCompany.ticker}
-              cik={activeCompany.cik}
-              onClose={() => setDashboardOpen(false)}
-              onSummarize={handleSend}
-            />
-          </div>
-        )}
+        {/* ─── Economic Calendar overlay ──────────────────────────────────── */}
+        {calendarOpen && <EconomicCalendar onClose={() => setCalendarOpen(false)} />}
+      </div>
+    </div>
+  )
+}
 
-        {/* Right: Watchlist panel */}
-        {watchlistOpen && (
-          <div className="w-72 flex-shrink-0 flex flex-col">
-            <Watchlist onClose={() => setWatchlistOpen(false)} />
-          </div>
-        )}
+function Sidebar({ onSend, onOpenCalendar, onToggleWatchlist }) {
+  const quickPrompts = [
+    "Summarize Tesla's latest 10-K in plain English.",
+    "What were Apple's key risks in their most recent annual report?",
+    "Show me NVIDIA's most recent 8-K filings.",
+  ]
+
+  return (
+    <aside
+      className="hidden md:flex flex-col w-64 border-r"
+      style={{
+        background: 'var(--bg-elevated)',
+        borderColor: 'var(--border-subtle)',
+      }}
+    >
+      <div className="px-4 pt-4 pb-3 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+        <p
+          className="text-xs font-semibold uppercase tracking-[0.18em]"
+          style={{ color: 'var(--text-muted)' }}
+        >
+          Navigation
+        </p>
       </div>
 
-      {/* ─── Economic Calendar overlay ───────────────────────────────────── */}
-      {calendarOpen && (
-        <EconomicCalendar onClose={() => setCalendarOpen(false)} />
-      )}
-    </div>
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+        {/* Primary nav */}
+        <nav className="space-y-1 text-sm">
+          <div
+            className="flex items-center gap-2 rounded-xl px-3 py-2"
+            style={{
+              background: 'var(--bg-interactive)',
+              border: '1px solid var(--border-base)',
+            }}
+          >
+            <span>🏠</span>
+            <span style={{ color: 'var(--text-primary)' }}>Home</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenCalendar}
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <span>📅</span>
+            <span>Economic Calendar</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleWatchlist}
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <span>⭐</span>
+            <span>Watchlist</span>
+          </button>
+        </nav>
+
+        {/* Quick prompts */}
+        <div className="space-y-2">
+          <p
+            className="text-[11px] font-medium uppercase tracking-[0.16em]"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            Quick Starts
+          </p>
+          <div className="space-y-2">
+            {quickPrompts.map((q, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => onSend(q)}
+                className="w-full text-left rounded-lg px-3 py-2 text-xs transition-colors"
+                style={{
+                  background: 'var(--bg-interactive)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </aside>
   )
 }
 

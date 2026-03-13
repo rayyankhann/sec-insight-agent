@@ -20,7 +20,7 @@ function saveTickers(tickers) {
   localStorage.setItem(LS_KEY, JSON.stringify(tickers))
 }
 
-function MiniQuote({ ticker, onRemove }) {
+function MiniQuote({ ticker, onRemove, onAsk }) {
   const [quote, setQuote]     = useState(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr]         = useState(false)
@@ -48,35 +48,55 @@ function MiniQuote({ ticker, onRemove }) {
   const up = (quote?.change_pct ?? 0) >= 0
 
   return (
-    <div className="flex items-center justify-between bg-[#111827] border border-[#1f2937] rounded-lg px-3 py-2.5 group hover:border-[#2d3748] transition-colors">
+    <div className="flex items-center justify-between rounded-lg px-3 py-2.5 group transition-all duration-150"
+      style={{ background: 'var(--bg-interactive)', border: '1px solid var(--border-subtle)' }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-base)'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-subtle)'}>
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-mono font-semibold text-white">{ticker}</span>
-          {loading && <span className="w-2 h-2 rounded-full bg-gray-600 animate-pulse" />}
+          <span className="text-xs font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{ticker}</span>
+          {loading && <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--text-muted)' }} />}
         </div>
         {quote?.company_name && (
-          <p className="text-[10px] text-gray-600 truncate max-w-[130px]">{quote.company_name}</p>
+          <p className="text-[10px] truncate max-w-[130px]" style={{ color: 'var(--text-muted)' }}>{quote.company_name}</p>
         )}
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
         {err ? (
-          <span className="text-[10px] text-gray-600">—</span>
+          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>—</span>
         ) : quote ? (
           <div className="text-right">
-            <p className="text-xs font-mono text-white">
+            <p className="text-xs font-mono" style={{ color: 'var(--text-primary)' }}>
               ${quote.price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
-            <p className={`text-[10px] font-mono ${up ? 'text-green-400' : 'text-red-400'}`}>
+            <p className="text-[10px] font-mono" style={{ color: up ? 'var(--green)' : 'var(--red)' }}>
               {up ? '+' : ''}{quote.change_pct?.toFixed(2)}%
             </p>
           </div>
         ) : null}
 
-        {/* Remove button — visible on hover */}
+        {onAsk && (
+          <button
+            onClick={() => onAsk(ticker)}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-[10px] font-medium transition-colors"
+            style={{
+              color: 'var(--blue-hover)',
+              background: 'rgba(64,144,232,0.08)',
+              border: '1px solid rgba(64,144,232,0.25)',
+            }}
+            title="Ask about this ticker"
+          >
+            Ask
+          </button>
+        )}
+
         <button
           onClick={() => onRemove(ticker)}
-          className="w-4 h-4 flex items-center justify-center text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+          className="w-4 h-4 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
+          style={{ color: 'var(--text-muted)' }}
+          onMouseEnter={e => { e.currentTarget.style.color = '#f87171' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
           title="Remove"
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -88,7 +108,7 @@ function MiniQuote({ ticker, onRemove }) {
   )
 }
 
-export default function Watchlist({ onClose }) {
+export default function Watchlist({ onClose, onAsk }) {
   const [tickers, setTickers] = useState(loadSaved)
   const [input, setInput]     = useState('')
 
@@ -112,18 +132,21 @@ export default function Watchlist({ onClose }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#0d1424] border-l border-[#1f2937]">
+    <div className="flex flex-col h-full animate-fade-in"
+      style={{ background: 'var(--bg-surface)', borderLeft: '1px solid var(--border-subtle)' }}>
 
       {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-[#1f2937]">
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3"
+        style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <div>
-          <h2 className="text-white font-semibold text-sm">Watchlist</h2>
-          <p className="text-xs text-gray-600 mt-0.5">Prices update every 60 s</p>
+          <h2 className="font-semibold text-sm" style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>Watchlist</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Updates every 60 s</p>
         </div>
-        <button
-          onClick={onClose}
-          className="w-6 h-6 rounded-md flex items-center justify-center text-gray-500 hover:text-gray-300 hover:bg-[#1f2937] transition-colors"
-        >
+        <button onClick={onClose}
+          className="w-6 h-6 rounded-md flex items-center justify-center transition-colors"
+          style={{ color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-hover)' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent' }}>
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -131,7 +154,7 @@ export default function Watchlist({ onClose }) {
       </div>
 
       {/* Add input */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-[#1f2937]">
+      <div className="flex-shrink-0 px-4 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <div className="flex gap-2">
           <input
             type="text"
@@ -140,12 +163,19 @@ export default function Watchlist({ onClose }) {
             onKeyDown={handleKey}
             placeholder="Add ticker… (e.g. AAPL)"
             maxLength={10}
-            className="flex-1 bg-[#111827] border border-[#1f2937] rounded-lg text-xs text-white placeholder-gray-600 px-3 py-2 focus:outline-none focus:border-blue-700 transition-colors"
+            className="flex-1 rounded-lg text-xs px-3 py-2 focus:outline-none transition-colors"
+            style={{
+              background: 'var(--bg-interactive)',
+              border: '1px solid var(--border-base)',
+              color: 'var(--text-primary)',
+              fontFamily: 'inherit',
+            }}
           />
           <button
             onClick={addTicker}
             disabled={!input.trim()}
-            className="px-3 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white text-xs rounded-lg transition-colors font-medium"
+            className="px-3 py-2 text-white text-xs rounded-lg transition-all font-medium disabled:opacity-40"
+            style={{ background: 'var(--blue)', boxShadow: '0 2px 10px rgba(64,144,232,0.3)' }}
           >
             Add
           </button>
@@ -157,18 +187,18 @@ export default function Watchlist({ onClose }) {
         {tickers.length === 0 ? (
           <div className="text-center py-10">
             <p className="text-2xl mb-2">📌</p>
-            <p className="text-xs text-gray-600">No tickers yet.</p>
-            <p className="text-xs text-gray-700 mt-1">Type a symbol above and press Enter.</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No tickers yet.</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)', opacity: 0.6 }}>Type a symbol above and press Enter.</p>
           </div>
         ) : (
           tickers.map(t => (
-            <MiniQuote key={t} ticker={t} onRemove={removeTicker} />
+            <MiniQuote key={t} ticker={t} onRemove={removeTicker} onAsk={onAsk} />
           ))
         )}
       </div>
 
-      <div className="flex-shrink-0 border-t border-[#1f2937] px-4 py-2">
-        <p className="text-[10px] text-gray-700 text-center">
+      <div className="flex-shrink-0 px-4 py-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
           Saved locally · Data: Yahoo Finance
         </p>
       </div>

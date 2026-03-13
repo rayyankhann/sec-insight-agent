@@ -64,53 +64,48 @@ export default function MarketBar() {
 
   if (!ready) {
     return (
-      <div className="flex-shrink-0 h-7 bg-[#080e1c] border-b border-[#1a2233] flex items-center px-4">
-        <span className="text-[10px] text-gray-700 animate-pulse tracking-widest">
+      <div className="flex-shrink-0 h-8 flex items-center px-4"
+        style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-subtle)' }}>
+        <span className="text-[10px] animate-pulse tracking-widest" style={{ color: 'var(--text-muted)' }}>
           LOADING MARKET DATA…
         </span>
       </div>
     )
   }
 
-  // Duplicate items for seamless infinite scroll
-  const items = [...indices, ...indices]
-
-  // Duration scales with number of items so speed feels consistent
-  const duration = `${Math.max(20, indices.length * 5)}s`
+  const items    = [...indices, ...indices]
+  const duration = `${Math.max(25, indices.length * 5)}s`
 
   return (
-    <div className="flex-shrink-0 bg-[#080e1c] border-b border-[#1a2233] flex items-stretch">
+    <div className="flex-shrink-0 flex items-stretch"
+      style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-subtle)', height: '32px' }}>
 
       {/* ── Scrolling ticker strip ─────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden flex items-center relative min-w-0">
-
-        {/* Fade edges */}
-        <div className="absolute left-0 top-0 bottom-0 w-8 z-10 pointer-events-none bg-gradient-to-r from-[#080e1c] to-transparent" />
-        <div className="absolute right-0 top-0 bottom-0 w-8 z-10 pointer-events-none bg-gradient-to-l from-[#080e1c] to-transparent" />
+        <div className="absolute left-0 top-0 bottom-0 w-10 z-10 pointer-events-none"
+          style={{ background: 'linear-gradient(to right, var(--bg-elevated), transparent)' }} />
+        <div className="absolute right-0 top-0 bottom-0 w-10 z-10 pointer-events-none"
+          style={{ background: 'linear-gradient(to left, var(--bg-elevated), transparent)' }} />
 
         <div
           ref={stripRef}
-          className="flex items-center gap-0 py-1.5 whitespace-nowrap"
-          style={{
-            animation: `ticker-scroll ${duration} linear infinite`,
-            willChange: 'transform',
-          }}
+          className="flex items-center whitespace-nowrap"
+          style={{ animation: `ticker-scroll ${duration} linear infinite`, willChange: 'transform' }}
         >
           {items.map((idx, i) => {
             const up = (idx.change_pct ?? 0) >= 0
-            const isCrypto = idx.symbol === 'BTC-USD' || idx.symbol === 'ETH-USD'
             return (
-              <span
-                key={`${idx.symbol}-${i}`}
-                className="inline-flex items-center gap-1.5 px-3 border-r border-[#1a2233] last:border-0 flex-shrink-0"
-              >
-                <span className="text-[11px] text-gray-500 font-medium tracking-wide">
+              <span key={`${idx.symbol}-${i}`}
+                className="inline-flex items-center gap-1.5 px-3 flex-shrink-0"
+                style={{ borderRight: '1px solid var(--border-subtle)' }}>
+                <span className="text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>
                   {idx.name}
                 </span>
-                <span className="text-[11px] text-white font-mono">
-                  {isCrypto ? '' : ''}{fmt(idx.price, idx.symbol)}
+                <span className="text-[11px] font-mono" style={{ color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}>
+                  {fmt(idx.price, idx.symbol)}
                 </span>
-                <span className={`text-[11px] font-mono font-medium ${up ? 'text-green-400' : 'text-red-400'}`}>
+                <span className="text-[10px] font-mono font-semibold"
+                  style={{ color: up ? 'var(--green)' : 'var(--red)' }}>
                   {up ? '▲' : '▼'} {Math.abs(idx.change_pct ?? 0).toFixed(2)}%
                 </span>
               </span>
@@ -119,26 +114,27 @@ export default function MarketBar() {
         </div>
       </div>
 
-      {/* ── Fear & Greed badge (static, right side) ───────────────────── */}
+      {/* ── Fear & Greed badge ─────────────────────────────────────────── */}
       {fg && (() => {
         const { text, bg, bar } = fgMeta(fg.rating)
         const pct = Math.min(100, Math.max(0, fg.score))
         return (
           <div
-            title={`Fear & Greed: ${fg.score} (${fg.rating})\nPrev Close: ${fg.previous_close} · 1W: ${fg.previous_1_week} · 1M: ${fg.previous_1_month}`}
-            className={`flex-shrink-0 flex items-center gap-2 px-3 border-l border-[#1a2233] cursor-default ${bg}`}
+            title={`Fear & Greed: ${fg.score} (${fg.rating})\nPrev: ${fg.previous_close} · 1W: ${fg.previous_1_week} · 1M: ${fg.previous_1_month}`}
+            className={`flex-shrink-0 flex items-center gap-2 px-3 cursor-default ${bg}`}
+            style={{ borderLeft: '1px solid var(--border-subtle)' }}
           >
-            <span className="text-[10px] text-gray-600 hidden sm:inline tracking-wide">F&G</span>
-            <div className="w-16 h-1 bg-[#1f2937] rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${bar}`} style={{ width: `${pct}%` }} />
+            <span className="text-[10px] hidden sm:inline" style={{ color: 'var(--text-muted)' }}>F&amp;G</span>
+            <div className="w-14 h-1 rounded-full overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
+              <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
             </div>
-            <span className={`text-[11px] font-bold font-mono ${text}`}>{fg.score}</span>
-            <span className={`text-[10px] ${text} opacity-80 hidden md:inline`}>{fg.rating}</span>
+            <span className={`text-[11px] font-bold font-mono ${text}`}
+              style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fg.score}</span>
+            <span className={`text-[10px] ${text} hidden md:inline`} style={{ opacity: 0.75 }}>{fg.rating}</span>
           </div>
         )
       })()}
 
-      {/* CSS keyframe injected inline */}
       <style>{`
         @keyframes ticker-scroll {
           0%   { transform: translateX(0) }
