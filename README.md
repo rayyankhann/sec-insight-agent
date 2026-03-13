@@ -45,17 +45,20 @@ The agent searches SEC EDGAR for the relevant company, retrieves their actual fi
 │                FastAPI microservice                             │
 │                     localhost:8001                              │
 │                                                                 │
-│  The ONLY service that talks to SEC EDGAR                       │
-│  Wraps EDGAR APIs into clean typed endpoints                    │
+│  Wraps all external data sources into clean typed endpoints     │
+│  Normalizes, enriches, and caches data from multiple APIs       │
 └──────────────────────────┬──────────────────────────────────────┘
                            │  HTTPS requests
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        SEC EDGAR                                │
-│              https://efts.sec.gov (search)                      │
-│              https://data.sec.gov (filings)                     │
-│              https://www.sec.gov  (documents)                   │
-│                    Free, no API key required                    │
+│                    External Data Sources                        │
+│                                                                 │
+│  • SEC EDGAR (filings, financials, insider trades)              │
+│  • Yahoo Finance via yfinance (quotes, charts, news, options)   │
+│  • Nasdaq (economic calendar)                                   │
+│  • alternative.me (Fear & Greed index)                          │
+│                                                                 │
+│                    All free, no API keys required               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -63,9 +66,9 @@ The agent searches SEC EDGAR for the relevant company, retrieves their actual fi
 
 | Component | Role | Port |
 |-----------|------|------|
-| **Frontend** | React UI — user types questions, displays answers | 5173 |
+| **Frontend** | React UI — sidebar, chat, dashboard, live market widgets | 5173 |
 | **Agent Backend** | LangChain agent — reasons over tools, calls GPT-4o | 8000 |
-| **MCP Server** | EDGAR API wrapper — the only service touching SEC data | 8001 |
+| **MCP Server** | Multi-source data wrapper — normalizes SEC, Yahoo, Nasdaq, etc. | 8001 |
 
 ---
 
@@ -191,28 +194,41 @@ sec-insight-agent/
 ├── frontend/                   # React + Vite + Tailwind CSS frontend
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── ChatWindow.jsx      # Scrollable message history
-│   │   │   ├── MessageBubble.jsx   # Individual message (user/agent/error)
-│   │   │   ├── SearchBar.jsx       # Bottom input bar
-│   │   │   └── LoadingIndicator.jsx # Animated dots while agent thinks
-│   │   ├── App.jsx             # Root component — state management, API calls
+│   │   │   ├── ChatWindow.jsx          # Scrollable message history
+│   │   │   ├── MessageBubble.jsx       # Chat bubbles (user/agent/error) with glassy gradients
+│   │   │   ├── SearchBar.jsx           # Bottom input bar (chat mode)
+│   │   │   ├── LoadingIndicator.jsx    # Animated dots while agent thinks
+│   │   │   ├── HomeScreen.jsx          # Landing screen with hero, market cards, event tiles
+│   │   │   ├── CompanyDashboard.jsx    # Right panel with 7 tabs (financials, filings, etc.)
+│   │   │   ├── MetricsPanel.jsx        # Annual financials from EDGAR XBRL
+│   │   │   ├── FilingTimeline.jsx      # Visual timeline of 10-K/10-Q/8-K filings
+│   │   │   ├── StockCard.jsx           # Inline 1-year price chart with quote
+│   │   │   ├── NewsCard.jsx            # Recent headlines (Yahoo Finance)
+│   │   │   ├── InsiderTrading.jsx      # Form 4 insider buy/sell transactions
+│   │   │   ├── EconomicCalendar.jsx    # Full-screen macro events calendar
+│   │   │   ├── MarketBar.jsx           # Scrolling live ticker strip + Fear & Greed
+│   │   │   ├── Watchlist.jsx           # User-pinned tickers with live quotes
+│   │   │   ├── CongressionalTrading.jsx # Congressional stock disclosures (deep-link)
+│   │   │   ├── OptionsFlow.jsx         # Put/call ratio + top OI contracts
+│   │   │   └── InstitutionalHoldings.jsx # Top 13F institutional holders
+│   │   ├── App.jsx             # Root component — sidebar, state, API orchestration
 │   │   ├── main.jsx            # React entry point
-│   │   └── index.css           # Global styles + Tailwind + markdown prose
-│   ├── index.html              # HTML entry point
-│   ├── vite.config.js          # Vite config + /api proxy rule
+│   │   └── index.css           # Design tokens, animations, prose styles
+│   ├── index.html              # HTML entry + Inter/JetBrains Mono fonts
+│   ├── vite.config.js          # Vite config + /api and /mcp proxy rules
 │   ├── tailwind.config.js      # Tailwind custom colors and animations
 │   └── package.json
 │
 ├── agent/                      # LangChain agent backend (FastAPI, port 8000)
 │   ├── main.py                 # FastAPI app, POST /chat endpoint
 │   ├── agent.py                # Agent executor construction + history formatting
-│   ├── tools.py                # 3 LangChain tools: search, filings, content
+│   ├── tools.py                # LangChain tools: search, filings, content
 │   ├── prompts.py              # System prompt and message templates
 │   └── requirements.txt
 │
-├── mcp_server/                 # EDGAR API wrapper (FastAPI, port 8001)
-│   ├── main.py                 # FastAPI app, 4 REST endpoints
-│   ├── edgar_client.py         # All EDGAR HTTP calls — company search, filings, documents
+├── mcp_server/                 # Multi-source data wrapper (FastAPI, port 8001)
+│   ├── main.py                 # FastAPI app, 15+ REST endpoints
+│   ├── edgar_client.py         # All external API calls (SEC, Yahoo, Nasdaq, etc.)
 │   ├── models.py               # Pydantic models for all requests/responses
 │   └── requirements.txt
 │
@@ -225,12 +241,16 @@ sec-insight-agent/
 
 | File | Responsibility |
 |------|---------------|
-| `mcp_server/edgar_client.py` | Every HTTP call to SEC EDGAR lives here. No other file touches EDGAR. |
-| `mcp_server/models.py` | Pydantic models ensure type-safe data across all endpoints. |
+| `mcp_server/edgar_client.py` | All external API calls (SEC EDGAR, Yahoo Finance via yfinance, Nasdaq, alternative.me). Normalizes and enriches data. |
+| `mcp_server/models.py` | Pydantic models for 15+ data types (filings, financials, options, economic events, etc.). |
+| `mcp_server/main.py` | 15+ REST endpoints exposing normalized data to the agent and frontend. |
 | `agent/tools.py` | LangChain tool definitions — the bridge between the LLM and the MCP server. |
 | `agent/agent.py` | Wires together GPT-4o, tools, and the prompt into an AgentExecutor. |
-| `agent/prompts.py` | The system prompt defines the agent's identity, rules, and reasoning strategy. |
-| `frontend/src/App.jsx` | Manages all React state and makes the single POST /api/chat call. |
+| `agent/prompts.py` | System prompt defines the agent's identity, rules, and reasoning strategy. |
+| `frontend/src/App.jsx` | Root component with sidebar, state management, and orchestration of chat + dashboard panels. |
+| `frontend/src/components/HomeScreen.jsx` | Rich landing screen with live markets, next macro event, earnings radar, and glassy hero input. |
+| `frontend/src/components/CompanyDashboard.jsx` | Right-panel dashboard with 7 tabs (financials, filings, news, insiders, options, holders, congress). |
+| `frontend/src/index.css` | Design tokens (black-focused theme), animations, prose styles for markdown rendering. |
 
 ---
 
